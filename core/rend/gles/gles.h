@@ -1,6 +1,7 @@
 #pragma once
 #include "rend/rend.h"
 
+#ifdef GLES
 #include <EGL/egl.h>
 #include <GLES2/gl2.h>
 #include <GLES2/gl2ext.h>
@@ -11,8 +12,13 @@
 #pragma comment(lib,"libGLESv2.lib")
 #else /* NV gles emulation*/
 #pragma comment(lib,"libGLES20.lib")
-
 #endif
+
+#else
+#include <GL3/gl3w.h>
+#endif
+
+
 #define glCheck() false
 #define eglCheck() false
 
@@ -48,6 +54,7 @@ struct PipelineShader
 
 struct gl_ctx
 {
+#ifdef GLES
 	struct
 	{
 		EGLNativeWindowType native_wind;
@@ -56,6 +63,7 @@ struct gl_ctx
 		EGLSurface surface;
 		EGLContext context;
 	} setup;
+#endif
 
 	struct
 	{
