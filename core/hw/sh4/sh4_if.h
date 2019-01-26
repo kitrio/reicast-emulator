@@ -215,7 +215,7 @@ struct fpscr_t
 		};
 		struct
 		{
-			u32 nil   : 2+1+1+1+1+4+8+1;
+			u32 _nil   : 2+1+1+1+1+4+8+1;
 			u32 PR_SZ : 2;
 			u32 nilz  : 11;
 		};
@@ -300,15 +300,21 @@ struct Sh4Context
 
 void DYNACALL do_sqw_mmu(u32 dst);
 extern "C" void DYNACALL do_sqw_nommu_area_3(u32 dst, u8* sqb);
+extern "C" void DYNACALL do_sqw_nommu_area_3_nonvmem(u32 dst, u8* sqb);
 void DYNACALL do_sqw_nommu_full(u32 dst, u8* sqb);
 
 typedef void DYNACALL sqw_fp(u32 dst,u8* sqb);
 typedef void DYNACALL TaListVoidFP(void* data);
 
+#define FPCB_SIZE (RAM_SIZE/2)
+#define FPCB_MASK (FPCB_SIZE -1)
+//#defeine FPCB_PAD 0x40000
+#define FPCB_PAD 0x100000
+#define FPCB_OFFSET (-(FPCB_SIZE*sizeof(void*) + FPCB_PAD)) 
 struct Sh4RCB
 {
-	void* fpcb[8*1024*1024];
-	u64 _pad[(0x40000-sizeof(Sh4Context)-64-8)/8];
+	void* fpcb[FPCB_SIZE];
+	u64 _pad[(FPCB_PAD-sizeof(Sh4Context)-64-sizeof(void*)*2)/8];
 	TaListVoidFP* tacmd_voud; //*TODO* remove (not used)
 	sqw_fp* do_sqw_nommu;
 	u64 sq_buffer[64/8];

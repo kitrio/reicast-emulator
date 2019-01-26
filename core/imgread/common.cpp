@@ -1,16 +1,16 @@
 #include "common.h"
 
-Disc* chd_parse(wchar* file);
-Disc* gdi_parse(wchar* file);
-Disc* cdi_parse(wchar* file);
+Disc* chd_parse(const wchar* file);
+Disc* gdi_parse(const wchar* file);
+Disc* cdi_parse(const wchar* file);
 #if HOST_OS==OS_WINDOWS
-Disc* ioctl_parse(wchar* file);
+Disc* ioctl_parse(const wchar* file);
 #endif
 
 u32 NullDriveDiscType;
 Disc* disc;
 
-Disc*(*drivers[])(wchar* path)=
+Disc*(*drivers[])(const wchar* path)=
 {
 	chd_parse,
 	gdi_parse,
@@ -25,8 +25,12 @@ u8 q_subchannel[96];
 
 void PatchRegion_0(u8* sector,int size)
 {
+#ifndef NOT_REICAST
 	if (settings.imgread.PatchRegion==0)
 		return;
+#else
+	return;
+#endif
 
 	u8* usersect=sector;
 
@@ -41,8 +45,12 @@ void PatchRegion_0(u8* sector,int size)
 }
 void PatchRegion_6(u8* sector,int size)
 {
+#ifndef NOT_REICAST
 	if (settings.imgread.PatchRegion==0)
 		return;
+#else
+	return;
+#endif
 
 	u8* usersect=sector;
 
@@ -121,18 +129,41 @@ bool ConvertSector(u8* in_buff , u8* out_buff , int from , int to,int sector)
 	return true;
 }
 
+Disc* OpenDisc(const wchar* fn)
+{
+	Disc* rv = NULL;
+
+	for (unat i=0; drivers[i] && !rv; i++) {  // ;drivers[i] && !(rv=drivers[i](fn));
+		rv = drivers[i](fn);
+
+		if (rv && cdi_parse == drivers[i]) {
+			const wchar warn_str[] = "Warning: CDI Image Loaded!\n  Many CDI images are known to be defective, GDI or CHD format is preferred. Please only file bug reports when using images known to be good (GDI or CHD).";
+#ifdef _ANDROID
+			printf(warn_str);
+#else
+			msgboxf(warn_str, MBX_ICONASTERISK);// if (OS_DlgYes!=os_Dialog(OS_DialogYesNo, cdiWarn_S)) rv=0;
+#endif
+			break;
+		}
+	}
+
+	return rv;
+}
+
 bool InitDrive_(wchar* fn)
 {
 	TermDrive();
 
 	//try all drivers
-	for (int i=0;drivers[i] && !(disc=drivers[i](fn));i++) ;
+	disc = OpenDisc(fn);
 
 	if (disc!=0)
 	{
 		printf("gdrom: Opened image \"%s\"\n",fn);
 		NullDriveDiscType=Busy;
+#ifndef NOT_REICAST
 		libCore_gdrom_disc_change();
+#endif
 //		Sleep(400); //busy for a bit // what, really ?
 		return true;
 	}
@@ -144,6 +175,7 @@ bool InitDrive_(wchar* fn)
 	return false;
 }
 
+#ifndef NOT_REICAST
 bool InitDrive(u32 fileflags)
 {
 	if (settings.imgread.LoadDefaultImage)
@@ -151,15 +183,18 @@ bool InitDrive(u32 fileflags)
 		printf("Loading default image \"%s\"\n",settings.imgread.DefaultImage);
 		if (!InitDrive_(settings.imgread.DefaultImage))
 		{
-			msgboxf("Default image \"%s\" failed to load",MBX_ICONERROR);
+			msgboxf("Default image \"%s\" failed to load",MBX_ICONERROR,settings.imgread.DefaultImage);
 			return false;
 		}
 		else
 			return true;
 	}
 
+	// FIXME: Data loss if buffer is too small
 	wchar fn[512];
-	strcpy(fn,settings.imgread.LastImage);
+	strncpy(fn,settings.imgread.LastImage, sizeof(fn));
+	fn[sizeof(fn) - 1] = '\0';
+
 #ifdef BUILD_DREAMCAST
 	int gfrv=GetFile(fn,0,fileflags);
 #else
@@ -179,17 +214,20 @@ bool InitDrive(u32 fileflags)
 		return false;
 	}
 
-	strcpy(settings.imgread.LastImage,fn);
+	// FIXME: Data loss if buffer is too small
+	strncpy(settings.imgread.LastImage, fn, sizeof(settings.imgread.LastImage));
+	settings.imgread.LastImage[sizeof(settings.imgread.LastImage) - 1] = '\0';
+
 	SaveSettings();
 
 	if (!InitDrive_(fn))
 	{
 		//msgboxf("Selected image failed to load",MBX_ICONERROR);
-		NullDriveDiscType=NoDisk;
-		gd_setdisc();
-		sns_asc=0x29;
-		sns_ascq=0x00;
-		sns_key=0x6;
+			NullDriveDiscType=NoDisk;
+			gd_setdisc();
+			sns_asc=0x29;
+			sns_ascq=0x00;
+			sns_key=0x6;
 		return true;
 	}
 	else
@@ -205,15 +243,19 @@ bool DiscSwap(u32 fileflags)
 		printf("Loading default image \"%s\"\n",settings.imgread.DefaultImage);
 		if (!InitDrive_(settings.imgread.DefaultImage))
 		{
-			msgboxf("Default image \"%s\" failed to load",MBX_ICONERROR);
+			msgboxf("Default image \"%s\" failed to load",MBX_ICONERROR,settings.imgread.DefaultImage);
 			return false;
 		}
 		else
 			return true;
 	}
 
+	// FIXME: Data loss if buffer is too small
 	wchar fn[512];
-	strcpy(fn,settings.imgread.LastImage);
+	strncpy(fn, settings.imgread.LastImage, sizeof(fn));
+	fn[sizeof(fn) - 1] = '\0';
+
+
 #ifdef BUILD_DREAMCAST
 	int gfrv=GetFile(fn,0,fileflags);
 #else
@@ -236,7 +278,11 @@ bool DiscSwap(u32 fileflags)
 		return false;
 	}
 
-	strcpy(settings.imgread.LastImage,fn);
+	// FIXME: Data loss if buffer is too small
+	strncpy(settings.imgread.LastImage, fn, sizeof(settings.imgread.LastImage));
+	settings.imgread.LastImage[sizeof(settings.imgread.LastImage) - 1] = '\0';
+
+
 	SaveSettings();
 
 	if (!InitDrive_(fn))
@@ -257,6 +303,7 @@ bool DiscSwap(u32 fileflags)
 		return true;
 	}
 }
+#endif
 
 void TermDrive()
 {
@@ -328,9 +375,9 @@ void GetDriveToc(u32* to,DiskArea area)
 	//Generate the TOC info
 
 	//-1 for 1..99 0 ..98
-	to[99]=CreateTrackInfo_se(disc->tracks[first_track-1].CTRL,disc->tracks[first_track-1].ADDR,first_track); 
-	to[100]=CreateTrackInfo_se(disc->tracks[last_track-1].CTRL,disc->tracks[last_track-1].ADDR,last_track); 
-	
+	to[99]=CreateTrackInfo_se(disc->tracks[first_track-1].CTRL,disc->tracks[first_track-1].ADDR,first_track);
+	to[100]=CreateTrackInfo_se(disc->tracks[last_track-1].CTRL,disc->tracks[last_track-1].ADDR,last_track);
+
 	if (disc->type==GdRom)
 	{
 		//use smaller LEADOUT
@@ -344,7 +391,7 @@ void GetDriveToc(u32* to,DiskArea area)
 
 	for (u32 i=first_track-1;i<last_track;i++)
 	{
-		to[i]=CreateTrackInfo(disc->tracks[i].CTRL,disc->tracks[i].ADDR,disc->tracks[i].StartFAD); 
+		to[i]=CreateTrackInfo(disc->tracks[i].CTRL,disc->tracks[i].ADDR,disc->tracks[i].StartFAD);
 	}
 }
 
@@ -354,7 +401,7 @@ void GetDriveSessionInfo(u8* to,u8 session)
 		return;
 	to[0]=2;//status, will get overwritten anyway
 	to[1]=0;//0's
-	
+
 	if (session==0)
 	{
 		to[2]=disc->sessions.size();//count of sessions
@@ -394,7 +441,7 @@ DiscType GuessDiscType(bool m1, bool m2, bool da)
 		return  CdRom;
 	else if (m2)
 		return  CdRom_XA;
-	else if (da && m1) 
+	else if (da && m1)
 		return CdRom_Extra;
 	else
 		return CdRom;

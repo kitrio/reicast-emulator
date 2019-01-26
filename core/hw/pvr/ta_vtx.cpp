@@ -8,7 +8,6 @@
 #include "ta.h"
 #include "ta_ctx.h"
 #include "pvr_mem.h"
-#include "rend/gles/gles.h"
 #include "Renderer_if.h"
 
 u32 ta_type_lut[256];
@@ -84,10 +83,10 @@ PolyParam* CurrentPP=&nullPP;
 List<PolyParam>* CurrentPPlist;
 
 //TA state vars	
-ALIGN(4) static u8 FaceBaseColor[4];
-ALIGN(4) static u8 FaceOffsColor[4];
-ALIGN(4) static u32 SFaceBaseColor;
-ALIGN(4) static u32 SFaceOffsColor;
+DECL_ALIGN(4) static u8 FaceBaseColor[4];
+DECL_ALIGN(4) static u8 FaceOffsColor[4];
+DECL_ALIGN(4) static u32 SFaceBaseColor;
+DECL_ALIGN(4) static u32 SFaceOffsColor;
 
 
 
@@ -112,7 +111,7 @@ const u32 SZ64=2;
 #include "ta_structs.h"
 
 typedef Ta_Dma* DYNACALL TaListFP(Ta_Dma* data,Ta_Dma* data_end);
-typedef u32 TACALL TaPolyParamFP(void* ptr);
+typedef void TACALL TaPolyParamFP(void* ptr);
 
 //#define TaCmd ((TaListFP*&)sh4rcb.tacmd_void)
 TaListFP* TaCmd;
@@ -352,14 +351,18 @@ strip_end:
 		return data+poly_size;
 	}
 
-	static void TACALL AppendPolyParam2Full(Ta_Dma* pp)
+	static void TACALL AppendPolyParam2Full(void* vpp)
 	{
+		Ta_Dma* pp=(Ta_Dma*)vpp;
+
 		AppendPolyParam2A((TA_PolyParam2A*)&pp[0]);
 		AppendPolyParam2B((TA_PolyParam2B*)&pp[1]);
 	}
 
-	static void TACALL AppendPolyParam4Full(Ta_Dma* pp)
+	static void TACALL AppendPolyParam4Full(void* vpp)
 	{
+		Ta_Dma* pp=(Ta_Dma*)vpp;
+
 		AppendPolyParam4A((TA_PolyParam4A*)&pp[0]);
 		AppendPolyParam4B((TA_PolyParam4B*)&pp[1]);
 	}
@@ -391,6 +394,7 @@ public:
 				//32Bw3
 			case ParamType_End_Of_List:
 				{
+
 					if (CurrentList==ListType_None)
 					{
 						CurrentList=data->pcw.ListType;
@@ -413,16 +417,17 @@ public:
 				//32B
 			case ParamType_User_Tile_Clip:
 				{
+
 					SetTileClip(data->data_32[3]&63,data->data_32[4]&31,data->data_32[5]&63,data->data_32[6]&31);
-					//*cough* ignore it :p
 					data+=SZ32;
 				}
 				break;
 				//32B
 			case ParamType_Object_List_Set:
 				{
+
 					die("ParamType_Object_List_Set");
-					//*cough* ignore it :p
+					// *cough* ignore it :p
 					data+=SZ32;
 				}
 				break;
@@ -432,6 +437,7 @@ public:
 				//PolyType :32B/64B
 			case ParamType_Polygon_or_Modifier_Volume:
 				{
+
 					TA_PP;
 					group_EN();
 					//Yep , C++ IS lame & limited
@@ -459,12 +465,14 @@ public:
 
 						if (data != data_end || psz==1)
 						{
+
 							//poly , 32B/64B
 							ta_poly_param_lut[ppid](data);
 							data+=psz;
 						}
 						else
 						{
+
 							//AppendPolyParam64A((TA_PolyParamA*)data);
 							//64b , first part
 							ta_poly_param_a_lut[ppid](data);
@@ -479,6 +487,7 @@ public:
 				//Sets Sprite info , and switches to ta_sprite_data function
 			case ParamType_Sprite:
 				{
+
 					TA_SP;
 					group_EN();
 					if (CurrentList==ListType_None)
@@ -495,6 +504,7 @@ public:
 			case ParamType_Vertex_Parameter:
 				//log ("vtx");
 				{
+
 					//printf("VTX:0x%08X\n",VerxexDataFP);
 					//verify(VerxexDataFP!=NullVertexData);
 					data=VerxexDataFP(data,data_end);
@@ -535,6 +545,7 @@ public:
 
 			ta_type_lut[i]=rv;
 		}
+		VerxexDataFP = NullVertexData;
 	}
 	/*
 	Volume,Col_Type,Texture,Offset,Gouraud,16bit_UV
@@ -718,7 +729,7 @@ public:
 	{
 		VDECInit();
 		TaCmd=ta_main;
-
+		CurrentList = ListType_None;
 		ListIsFinished[0]=ListIsFinished[1]=ListIsFinished[2]=ListIsFinished[3]=ListIsFinished[4]=false;
 	}
 		
@@ -799,7 +810,7 @@ public:
 			d_pp->texid = -1;
 
 			if (d_pp->pcw.Texture) {
-				d_pp->texid = GetTexture(d_pp->tsp,d_pp->tcw);
+				d_pp->texid = renderer->GetTexture(d_pp->tsp,d_pp->tcw);
 			}
 		}
 	}
@@ -818,40 +829,54 @@ public:
 
 	//poly param handling
 	__forceinline
-		static void TACALL AppendPolyParam0(TA_PolyParam0* pp)
+		static void TACALL AppendPolyParam0(void* vpp)
 	{
+		TA_PolyParam0* pp=(TA_PolyParam0*)vpp;
+
 		glob_param_bdc(pp);
 	}
 	__forceinline
-		static void TACALL AppendPolyParam1(TA_PolyParam1* pp)
+		static void TACALL AppendPolyParam1(void* vpp)
 	{
+		TA_PolyParam1* pp=(TA_PolyParam1*)vpp;
+
 		glob_param_bdc(pp);
 		poly_float_color(FaceBaseColor,FaceColor);
 	}
 	__forceinline
-		static void TACALL AppendPolyParam2A(TA_PolyParam2A* pp)
+		static void TACALL AppendPolyParam2A(void* vpp)
 	{
+		TA_PolyParam2A* pp=(TA_PolyParam2A*)vpp;
+
 		glob_param_bdc(pp);
 	}
 	__forceinline
-		static void TACALL AppendPolyParam2B(TA_PolyParam2B* pp)
+		static void TACALL AppendPolyParam2B(void* vpp)
 	{
+		TA_PolyParam2B* pp=(TA_PolyParam2B*)vpp;
+
 		poly_float_color(FaceBaseColor,FaceColor);
 		poly_float_color(FaceOffsColor,FaceOffset);
 	}
 	__forceinline
-		static void TACALL AppendPolyParam3(TA_PolyParam3* pp)
+		static void TACALL AppendPolyParam3(void* vpp)
 	{
+		TA_PolyParam3* pp=(TA_PolyParam3*)vpp;
+
 		glob_param_bdc(pp);
 	}
 	__forceinline
-		static void TACALL AppendPolyParam4A(TA_PolyParam4A* pp)
+		static void TACALL AppendPolyParam4A(void* vpp)
 	{
+		TA_PolyParam4A* pp=(TA_PolyParam4A*)vpp;
+
 		glob_param_bdc(pp);
 	}
 	__forceinline
-		static void TACALL AppendPolyParam4B(TA_PolyParam4B* pp)
+		static void TACALL AppendPolyParam4B(void* vpp)
 	{
+		TA_PolyParam4B* pp=(TA_PolyParam4B*)vpp;
+
 		poly_float_color(FaceBaseColor,FaceColor0);
 	}
 
@@ -1194,11 +1219,13 @@ public:
 		d_pp->texid = -1;
 		
 		if (d_pp->pcw.Texture) {
-			d_pp->texid = GetTexture(d_pp->tsp,d_pp->tcw);
+			d_pp->texid = renderer->GetTexture(d_pp->tsp,d_pp->tcw);
 		}
 
 		SFaceBaseColor=spr->BaseCol;
 		SFaceOffsColor=spr->OffsCol;
+        
+        d_pp->isp.CullMode ^= 1;
 	}
 
 	#define append_sprite(indx) \
@@ -1220,17 +1247,17 @@ public:
 	__forceinline
 		static void AppendSpriteVertexA(TA_Sprite1A* sv)
 	{
-		u16* idx=vdrc.idx.Append(6);
+        u16* idx=vdrc.idx.Append(6);
 		u32 vbase=vdrc.verts.used();
 
 		idx[0]=vbase+0;
 		idx[1]=vbase+1;
 		idx[2]=vbase+2;
 		idx[3]=vbase+3;
-		idx[4]=vbase+3;
-		idx[5]=vbase+4;
+        idx[4]=vbase+3;
+        idx[5]=vbase+4;
 
-		CurrentPP->count=vdrc.idx.used()-CurrentPP->first-2;
+        CurrentPP->count=vdrc.idx.used()-CurrentPP->first-2;
 
 		Vertex* cv = vdrc.verts.Append(4);
 
@@ -1413,14 +1440,11 @@ int ta_parse_cnt = 0;
 */
 bool ta_parse_vdrc(TA_context* ctx)
 {
-	bool rv=false;
-
 	verify( vd_ctx == 0);
 	vd_ctx = ctx;
 	vd_rc = vd_ctx->rend;
 	
 	ta_parse_cnt++;
- 
 	if (0 == (ta_parse_cnt %  ( settings.pvr.ta_skip + 1)))
 	{
 		TAFifo0.vdec_init();
@@ -1431,17 +1455,21 @@ bool ta_parse_vdrc(TA_context* ctx)
 		do
 		{
 			ta_data =TaCmd(ta_data,ta_data_end);
+
 		}
 		while(ta_data<=ta_data_end);
-
-		rv = true; //whatever
 	}
+	bool overrun = ctx->rend.Overrun;
 
 	vd_ctx->rend = vd_rc;
 	vd_ctx = 0;
 	ctx->rend_inuse.Unlock();
 
-	return rv;
+	ctx->rend.Overrun = overrun;
+	if (overrun)
+		printf("Warning: TA context overrun\n");
+
+	return !overrun;
 }
 
 
@@ -1541,11 +1569,13 @@ void FillBGP(TA_context* ctx)
 	bool PSVM=FPU_SHAD_SCALE.intesity_shadow!=0; //double parameters for volumes
 
 	//Get the strip base
-	u32 strip_base=(param_base + ISP_BACKGND_T.tag_address*4)&0x7FFFFF;	//this is *not* VRAM_MASK on purpose.It fixes naomi bios and quite a few naomi games
+	u32 strip_base=(param_base + ISP_BACKGND_T.tag_address*4);	//this is *not* VRAM_MASK on purpose.It fixes naomi bios and quite a few naomi games
 	//i have *no* idea why that happens, they manage to set the render target over there as well
 	//and that area is *not* written by the games (they instead write the params on 000000 instead of 800000)
 	//could be a h/w bug ? param_base is 400000 and tag is 100000*4
 	//Calculate the vertex size
+	//Update: Looks like I was handling the bank interleave wrong for 16 megs ram, could that be it?
+
 	u32 strip_vs=3 + ISP_BACKGND_T.skip;
 	u32 strip_vert_num=ISP_BACKGND_T.tag_offset;
 

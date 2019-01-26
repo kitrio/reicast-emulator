@@ -2,6 +2,12 @@
 #include "ta.h"
 #include "pvr_regs.h"
 
+// helper for 32 byte aligned memory allocation
+void* OS_aligned_malloc(size_t align, size_t size);
+
+// helper for 32 byte aligned memory de-allocation
+void OS_aligned_free(void *ptr);
+
 //Vertex storage types
 struct Vertex
 {
@@ -151,16 +157,16 @@ struct TA_context
 	}
 	void Alloc()
 	{
-		tad.Reset((u8*)malloc(2*1024*1024));
+		tad.Reset((u8*)OS_aligned_malloc(32, 8*1024*1024));
 
-		rend.verts.InitBytes(1024*1024,&rend.Overrun); //up to 1 mb of vtx data/frame = ~ 38k vtx/frame
-		rend.idx.Init(60*1024,&rend.Overrun);			//up to 60K indexes ( idx have stripification overhead )
+		rend.verts.InitBytes(2*1024*1024,&rend.Overrun); //up to 2 mb of vtx data/frame = ~ 76k vtx/frame
+		rend.idx.Init(120*1024,&rend.Overrun);			//up to 120K indexes ( idx have stripification overhead )
 		rend.global_param_op.Init(4096,&rend.Overrun);
 		rend.global_param_pt.Init(4096,&rend.Overrun);
 		rend.global_param_mvo.Init(4096,&rend.Overrun);
-		rend.global_param_tr.Init(4096,&rend.Overrun);
+		rend.global_param_tr.Init(8192,&rend.Overrun);
 
-		rend.modtrig.Init(4096,&rend.Overrun);
+		rend.modtrig.Init(8192,&rend.Overrun);
 		
 		Reset();
 	}
@@ -176,7 +182,7 @@ struct TA_context
 
 	void Free()
 	{
-		free(tad.thd_root);
+		OS_aligned_free(tad.thd_root);
 		rend.verts.Free();
 		rend.idx.Free();
 		rend.global_param_op.Free();
@@ -197,6 +203,7 @@ extern rend_context vd_rc;
 TA_context* tactx_Find(u32 addr, bool allocnew=false);
 TA_context* tactx_Pop(u32 addr);
 
+TA_context* tactx_Alloc();
 void tactx_Recycle(TA_context* poped_ctx);
 
 /*

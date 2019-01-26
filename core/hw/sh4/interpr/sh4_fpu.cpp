@@ -346,24 +346,28 @@ sh4op(i1111_nnnn_mmmm_1011)
 		u32 n = GetN(op);
 		u32 m = GetM(op);
 
-		r[n] -= 4;
+		u32 addr = r[n] - 4;
 
-		WriteMemU32(r[n], fr_hex[m]);
+		WriteMemU32(addr, fr_hex[m]);
+
+		r[n] = addr;
 	}
 	else
 	{
 		u32 n = GetN(op);
 		u32 m = GetM(op)>>1;
 
-		r[n] -= 8;
+		u32 addr = r[n] - 8;
 		if (((op >> 4) & 0x1) == 0)
 		{
-			WriteMemU64(r[n] , dr_hex[m]);
+			WriteMemU64(addr, dr_hex[m]);
 		}
 		else
 		{
-			WriteMemU64(r[n] , xd_hex[m]);
+			WriteMemU64(addr, xd_hex[m]);
 		}
+
+		r[n] = addr;
 	}
 }
 
@@ -624,22 +628,25 @@ sh4op(i1111_nnnn_0011_1101)
 	if (fpscr.PR == 0)
 	{
 		u32 n = GetN(op);
-		fpul = (u32)(s32)fr[n];
+		fpul = (u32)(s32)min(fr[n], 2147483520.0f);     // IEEE 754: 0x4effffff
 
-		if (fpul==0x80000000) //this is actually a x86-specific fix. I think ARM saturates
+		// Intel CPUs convert out of range float numbers to 0x80000000. Manually set the correct sign
+		if (fpul == 0x80000000)
 		{
-			if (fr[n]>0)
+			if (*(int *)&fr[n] > 0) // Using integer math to avoid issues with Inf and NaN
 				fpul--;
 		}
 	}
 	else
 	{
 		u32 n = (op >> 9) & 0x07;
-		fpul = (u32)(s32)GetDR(n);
+		f64 f = GetDR(n);
+		fpul = (u32)(s32)f;
 
-		if (fpul==0x80000000) //this is actually a x86-specific fix. I think ARM saturates
+		// Intel CPUs convert out of range float numbers to 0x80000000. Manually set the correct sign
+		if (fpul == 0x80000000)
 		{
-			if (GetDR(n)>0)
+			if (*(s64 *)&f > 0)     // Using integer math to avoid issues with Inf and NaN
 				fpul--;
 		}
 	}

@@ -16,6 +16,7 @@
 #define clip_verify(x)
 #endif
 
+//Sound generation, mixin, and channel regs emulation
 //x.15
 s32 volume_lut[16];
 //255 -> mute
@@ -562,7 +563,7 @@ struct ChannelEx
 	{
 		u32 oct=ccd->OCT;
 
-		update_rate = 1024 | ccd->FNS;
+		u32 update_rate = 1024 | ccd->FNS;
 		if (oct& 8)
 			update_rate>>=(16-oct);
 		else
@@ -687,6 +688,7 @@ struct ChannelEx
 		case 0x18://FNS
 		case 0x19://FNS,OCT
 			UpdatePitch();
+			UpdateAEG();
 			break;
 
 		case 0x1C://ALFOS,ALFOWS,PLFOS

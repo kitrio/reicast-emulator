@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <errno.h>
+#include "deps/coreio/coreio.h"
 #include "cdipsr.h"
 
 // Global variables
@@ -11,6 +12,10 @@ unsigned long temp_value;
 
 /////////////////////////////////////////////////////////////////////////////
 
+#define FILE core_file
+#define fread(buff,sz,cnt,fc) core_fread(fc,buff,sz*cnt)
+#define fseek core_fseek
+#define ftell core_ftell
 
 unsigned long ask_type(FILE *fsource, long header_position)
 {
@@ -42,8 +47,8 @@ unsigned long track_mode;
 void CDI_read_track (FILE *fsource, image_s *image, track_s *track)
 {
 
-     char TRACK_START_MARK[10] = { 0, 0, 0x01, 0, 0, 0, 0xFF, 0xFF, 0xFF, 0xFF };
-     char current_start_mark[10];
+     unsigned char TRACK_START_MARK[10] = { 0, 0, 0x01, 0, 0, 0, 0xFF, 0xFF, 0xFF, 0xFF };
+     unsigned char current_start_mark[10];
 
          fread(&temp_value, 4, 1, fsource);
          if (temp_value != 0)
@@ -108,19 +113,27 @@ void CDI_get_tracks (FILE *fsource, image_s *image)
      fread(&image->tracks, 2, 1, fsource);
 }
 
-void CDI_init (FILE *fsource, image_s *image, char *fsourcename)
+bool CDI_init (FILE *fsource, image_s *image, const char *fsourcename)
 {
-     fseek(fsource, 0L, SEEK_END);
-     image->length = ftell(fsource);
+	image->length = core_fsize(fsource);
 
-     if (image->length < 8) printf( "Image file is too short");
+	if (image->length < 8)
+	{
+		printf("%s: Image file is too short\n", fsourcename);
+		return false;
+	}
 
-     fseek(fsource, image->length-8, SEEK_SET);
-     fread(&image->version, 4, 1, fsource);
-     fread(&image->header_offset, 4, 1, fsource);
+	fseek(fsource, image->length-8, SEEK_SET);
+	fread(&image->version, 4, 1, fsource);
+	fread(&image->header_offset, 4, 1, fsource);
 
-   //  if (errno != 0) printf( fsourcename);
-     if (image->header_offset == 0) printf( "Bad image format");
+	if ((image->version != CDI_V2 && image->version != CDI_V3 && image->version != CDI_V35)
+			|| image->header_offset == 0)
+	{
+		printf("%s: Bad image format\n", fsourcename);
+		return false;
+	}
+	return true;
 }
 
 void CDI_get_sessions (FILE *fsource, image_s *image)

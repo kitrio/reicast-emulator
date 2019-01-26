@@ -6,29 +6,30 @@
 #include "sh4_core.h"
 #include "sh4_interrupts.h"
 
+
 Sh4RCB* p_sh4rcb;
 sh4_if  sh4_cpu;
 u8* sh4_dyna_rcb;
 
 INLINE void ChangeGPR()
 {
-	u32 temp[8];
+	u32 temp;
 	for (int i=0;i<8;i++)
 	{
-		temp[i]=r[i];
+		temp=r[i];
 		r[i]=r_bank[i];
-		r_bank[i]=temp[i];
+		r_bank[i]=temp;
 	}
 }
 
 INLINE void ChangeFP()
 {
-	u32 temp[16];
+	u32 temp;
 	for (int i=0;i<16;i++)
 	{
-		temp[i]=fr_hex[i];
+		temp=fr_hex[i];
 		fr_hex[i]=xf_hex[i];
-		xf_hex[i]=temp[i];
+		xf_hex[i]=temp;
 	}
 }
 
@@ -71,22 +72,31 @@ void SetFloatStatusReg()
 	{
 		old_rm=fpscr.RM ;
 		old_dn=fpscr.DN ;
-		u32 temp=0x1f80;	//no flush to zero && round to nearest
+        
+        //Correct rounding is required by some games (SOTB, etc)
+#if BUILD_COMPILER == COMPILER_VC
+        if (fpscr.RM == 1)  //if round to 0 , set the flag
+            _controlfp(_RC_CHOP, _MCW_RC);
+        else
+            _controlfp(_RC_NEAR, _MCW_RC);
+        
+        if (fpscr.DN)     //denormals are considered 0
+            _controlfp(_DN_FLUSH, _MCW_DN);
+        else
+            _controlfp(_DN_SAVE, _MCW_DN);
+#else
 
+    #if HOST_CPU==CPU_X86 || HOST_CPU==CPU_X64
 
-		//TODO: Implement this (needed for SOTB)
-#if HOST_CPU==CPU_X86 && HOST_OS==OS_WINDOWS
-		if (fpscr.RM==1)  //if round to 0 , set the flag
-			temp|=(3<<13);
+            u32 temp=0x1f80;	//no flush to zero && round to nearest
 
-		if (fpscr.DN)     //denormals are considered 0
-			temp|=(1<<15);
+			if (fpscr.RM==1)  //if round to 0 , set the flag
+				temp|=(3<<13);
 
-		_asm
-		{
-			ldmxcsr temp; //load the float status :)
-		}
-#elif HOST_CPU==CPU_ARM
+			if (fpscr.DN)     //denormals are considered 0
+				temp|=(1<<15);
+			asm("ldmxcsr %0" : : "m"(temp));
+    #elif HOST_CPU==CPU_ARM
 		static const unsigned int x = 0x04086060;
 		unsigned int y = 0x02000000;
 		if (fpscr.RM==1)  //if round to 0 , set the flag
@@ -107,6 +117,9 @@ void SetFloatStatusReg()
 				: "=r"(raa)
 				: "r"(x), "r"(y)
 			);
+    #else
+        printf("SetFloatStatusReg: Unsupported platform\n");
+    #endif
 #endif
 
 	}

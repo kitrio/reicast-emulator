@@ -1,5 +1,8 @@
 #pragma once
 
+#if 1
+#include "../types.h"
+#else
 //basic types
 typedef signed __int8  s8;
 typedef signed __int16 s16;
@@ -32,6 +35,7 @@ typedef u64 unat;
 //unused parameters
 #pragma warning( disable : 4100)
 
+*/
 //basic includes from runtime lib
 #include <stdlib.h>
 #include <stdio.h>
@@ -49,4 +53,5 @@ using namespace std;
 
 #ifndef die
 #define die(reason) { printf("Fatal error : %s\n in %s -> %s : %d \n",reason,__FUNCTION__,__FILE__,__LINE__); dbgbreak;}
+#endif
 #endif

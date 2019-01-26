@@ -4,6 +4,9 @@
 */
 
 #include "types.h"
+
+#if FEAT_SHREC != DYNAREC_NONE
+
 #include "decoder.h"
 #include "shil.h"
 #include "ngen.h"
@@ -11,6 +14,9 @@
 #include "hw/sh4/sh4_core.h"
 #include "hw/sh4/sh4_mem.h"
 #include "decoder_opcodes.h"
+
+#define BLOCK_MAX_SH_OPS_SOFT 500
+#define BLOCK_MAX_SH_OPS_HARD 511
 
 RuntimeBlockInfo* blk;
 
@@ -654,7 +660,7 @@ u32 MatchDiv32(u32 pc , Sh4RegType &reg1,Sh4RegType &reg2 , Sh4RegType &reg3)
 		}
 		else
 		{
-			printf("%s\n",OpDesc[opcode]->diss);
+			//printf("DIV MATCH BROKEN BY: %s\n",OpDesc[opcode]->diss);
 			break;
 		}
 		
@@ -684,7 +690,10 @@ u32 MatchDiv32(u32 pc , Sh4RegType &reg1,Sh4RegType &reg2 , Sh4RegType &reg3)
 			break;
 	}
 	
-	return match;
+	if (settings.dynarec.safemode)
+		return 0;
+	else
+		return match;
 }
 bool MatchDiv32u(u32 op,u32 pc)
 {
@@ -1037,9 +1046,7 @@ void dec_DecodeBlock(RuntimeBlockInfo* rbi,u32 max_cycles)
 {
 	blk=rbi;
 	state.Setup(blk->addr,blk->fpu_cfg);
-#ifndef HOST_NO_REC
 	ngen_GetFeatures(&state.ngen);
-#endif
 	
 	blk->guest_opcodes=0;
 	
@@ -1053,7 +1060,10 @@ void dec_DecodeBlock(RuntimeBlockInfo* rbi,u32 max_cycles)
 			//there is no break here by design
 		case NDO_NextOp:
 			{
-				if (blk->guest_cycles>=max_cycles && !state.cpu.is_delayslot)
+				if ( 
+					( (blk->oplist.size() >= BLOCK_MAX_SH_OPS_SOFT) || (blk->guest_cycles >= max_cycles) )
+					&& !state.cpu.is_delayslot
+					)
 				{
 					dec_End(state.cpu.rpc,BET_StaticJump,false);
 				}
@@ -1141,6 +1151,8 @@ _end:
 	blk->NextBlock=state.NextAddr;
 	blk->BranchBlock=state.JumpAddr;
 	blk->BlockType=state.BlockType;
+
+	verify(blk->oplist.size() <= BLOCK_MAX_SH_OPS_HARD);
 	
 #if HOST_OS == OS_WINDOWS
 	switch(rbi->addr)
@@ -1169,7 +1181,7 @@ _end:
 			//Small-n-simple idle loop detector :p
 			if (state.info.has_readm && !state.info.has_writem && !state.info.has_fpu && blk->guest_opcodes<6)
 			{
-				if ((blk->BlockType==BET_Cond_0 || blk->BlockType==BET_Cond_1) && blk->BranchBlock<=blk->addr)
+				if (blk->BlockType==BET_Cond_0 || (blk->BlockType==BET_Cond_1 && blk->BranchBlock<=blk->addr))
 				{
 					blk->guest_cycles*=3;
 				}
@@ -1210,3 +1222,4 @@ _end:
 	blk=0;
 }
 
+#endif

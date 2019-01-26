@@ -14,9 +14,15 @@ void rend_end_render();
 void rend_end_wait();
 
 void rend_set_fb_scale(float x,float y);
-
+void rend_resize(int width, int height);
 void rend_text_invl(vram_block* bl);
 
+#ifdef GLuint
+GLuint
+#else
+u32
+#endif
+GetTexture(TSP tsp,TCW tcw);
 
 
 ///////
@@ -38,9 +44,14 @@ struct Renderer
 	virtual void Present()=0;
 
 	virtual void DrawOSD() { }
+
+	virtual u32 GetTexture(TSP tsp, TCW tcw) { return 0; }
 };
+
+extern Renderer* renderer;
 
 
 Renderer* rend_D3D11();
 Renderer* rend_GLES2();
 Renderer* rend_norend();
+Renderer* rend_softrend();

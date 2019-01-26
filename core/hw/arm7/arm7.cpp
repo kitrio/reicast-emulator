@@ -121,7 +121,7 @@ typedef union
 //bool arm_FiqPending; -- not used , i use the input directly :)
 //bool arm_IrqPending;
 
-ALIGN(8) reg_pair arm_Reg[RN_ARM_REG_COUNT];
+DECL_ALIGN(8) reg_pair arm_Reg[RN_ARM_REG_COUNT];
 
 void CPUSwap(u32 *a, u32 *b)
 {
@@ -188,7 +188,7 @@ void armt_init();
 //void CreateTables();
 void arm_Init()
 {
-#if !defined(HOST_NO_REC)
+#if FEAT_AREC != DYNAREC_NONE
 	armt_init();
 #endif
 	//CreateTables();
@@ -398,7 +398,7 @@ void FlushCache();
 
 void arm_Reset()
 {
-#if !defined(HOST_NO_REC)
+#if FEAT_AREC != DYNAREC_NONE
 	FlushCache();
 #endif
 	Arm7Enabled = false;
@@ -512,8 +512,16 @@ void update_armintc()
 	reg[INTR_PEND].I=e68k_out && armFiqEnable;
 }
 
-#ifdef HOST_NO_REC
-void arm_Run(u32 CycleCount) { arm_Run_(CycleCount); }
+void libAICA_TimeStep();
+
+#if FEAT_AREC == DYNAREC_NONE
+void arm_Run(u32 CycleCount) { 
+	for (int i=0;i<32;i++)
+	{
+		arm_Run_(CycleCount/32);
+		libAICA_TimeStep();
+	}
+}
 #else
 extern "C" void CompileCode();
 
@@ -734,15 +742,16 @@ u8* icPtr;
 u8* ICache;
 
 const u32 ICacheSize=1024*1024;
-#if HOST_OS != OS_LINUX
+#if HOST_OS == OS_WINDOWS
 u8 ARM7_TCB[ICacheSize+4096];
 #elif HOST_OS == OS_LINUX
 
-u8 ARM7_TCB[ICacheSize+4096] 
-#ifndef DYNA_OPROF
-__attribute__((section(".text")))
-#endif
-	;
+u8 ARM7_TCB[ICacheSize+4096] __attribute__((section(".text")));
+
+#elif HOST_OS==OS_DARWIN
+u8 ARM7_TCB[ICacheSize+4096] __attribute__((section("__TEXT, .text")));
+#else
+#error ARM7_TCB ALLOC
 #endif
 
 #include "arm_emitter/arm_emitter.h"
@@ -772,7 +781,7 @@ enum OpType
 void armv_call(void* target);
 void armv_setup();
 void armv_intpr(u32 opcd);
-void armv_end(void* codestart);
+void armv_end(void* codestart, u32 cycles);
 void armv_check_pc(u32 pc);
 void armv_check_cache(u32 opcd, u32 pc);
 void armv_imm_to_reg(u32 regn, u32 imm);
@@ -781,7 +790,7 @@ void armv_prof(OpType opt,u32 op,u32 flg);
 
 extern "C" void arm_dispatch();
 extern "C" void arm_exit();
-extern "C" void DYNACALL arm_mainloop(u32 cycl);
+extern "C" void DYNACALL arm_mainloop(u32 cycl, void* regs, void* entrypoints);
 extern "C" void DYNACALL arm_compilecode();
 
 template <bool L, bool B>
@@ -789,7 +798,7 @@ u32 DYNACALL DoMemOp(u32 addr,u32 data)
 {
 	u32 rv=0;
 
-#if HOST_CPU==CPU_X86 && !defined(HOST_NO_REC)
+#if HOST_CPU==CPU_X86 && FEAT_AREC != DYNAREC_NONE
 	addr=virt_arm_reg(0);
 	data=virt_arm_reg(1);
 #endif
@@ -809,7 +818,7 @@ u32 DYNACALL DoMemOp(u32 addr,u32 data)
 			arm_WriteMem32(addr,data);
 	}
 
-	#if HOST_CPU==CPU_X86 && !defined(HOST_NO_REC)
+	#if HOST_CPU==CPU_X86 && FEAT_AREC != DYNAREC_NONE
 		virt_arm_reg(0)=rv;
 	#endif
 
@@ -1461,7 +1470,7 @@ naked void DYNACALL arm_compilecode()
 	}
 }
 
-naked void DYNACALL arm_mainloop(u32 cycl)
+naked void DYNACALL arm_mainloop(u32 cycl, void* regs, void* entrypoints)
 {
 	__asm
 	{
@@ -1531,9 +1540,17 @@ void *armGetEmitPtr()
 	return NULL;
 }
 
+#if HOST_OS==OS_DARWIN
+#include <libkern/OSCacheControl.h>
+extern "C" void armFlushICache(void *code, void *pEnd) {
+    sys_dcache_flush(code, (u8*)pEnd - (u8*)code + 1);
+    sys_icache_invalidate(code, (u8*)pEnd - (u8*)code + 1);
+}
+#else
 extern "C" void armFlushICache(void *bgn, void *end) {
 	__clear_cache(bgn, end);
 }
+#endif
 
 
 void armv_imm_to_reg(u32 regn, u32 imm)
@@ -1573,8 +1590,13 @@ void armv_end(void* codestart, u32 cycl)
 		SUB(r5,r5,cycl,true);
 	else
 	{
-		SUB(r5,r5,256);
-		SUB(r5,r5,cycl-256,true);
+		u32 togo = cycl;
+		while(ARMImmid8r4_enc(togo) == -1)
+		{
+			SUB(r5,r5,256);
+			togo -= 256;
+		}
+		SUB(r5,r5,togo,true);
 	}
 	JUMP((u32)&arm_exit,CC_MI);	//statically predicted as not taken
 	JUMP((u32)&arm_dispatch);
@@ -1594,7 +1616,6 @@ void armv_MOV32(eReg regn, u32 imm)
 
 #endif	// HOST_CPU 
 
-void libAICA_TimeStep();
 //Run a timeslice for ARMREC
 //CycleCount is pretty much fixed to (512*32) for now (might change to a diff constant, but will be constant)
 void arm_Run(u32 CycleCount)
@@ -1604,7 +1625,7 @@ void arm_Run(u32 CycleCount)
 
 	for (int i=0;i<32;i++)
 	{
-		arm_mainloop(CycleCount/32);
+		arm_mainloop(CycleCount/32, arm_Reg, EntryPoints);
 		libAICA_TimeStep();
 	}
 
@@ -2098,8 +2119,9 @@ s32 ARM::imma;
 
 void armEmit32(u32 emit32)
 {
-	if (icPtr >= (ICache+ICacheSize-1024))
+	if (icPtr >= (ICache + ICacheSize - 64*1024)) {
 		die("ICache is full, invalidate old entries ...");	//ifdebug
+	}
 
 	x86e->Emit(op_mov32,ECX,emit32);
 	x86e->Emit(op_call,x86_ptr_imm(virt_arm_op));
@@ -2121,10 +2143,16 @@ void armt_init()
 	//align to next page ..
 	ICache = (u8*)(((unat)ARM7_TCB+4095)& ~4095);
 
+	#if HOST_OS==OS_DARWIN
+		//Can't just mprotect on iOS
+		munmap(ICache, ICacheSize);
+		ICache = (u8*)mmap(ICache, ICacheSize, PROT_READ | PROT_WRITE | PROT_EXEC, MAP_FIXED | MAP_PRIVATE | MAP_ANON, 0, 0);
+	#endif
+
 #if HOST_OS == OS_WINDOWS
 	DWORD old;
 	VirtualProtect(ICache,ICacheSize,PAGE_EXECUTE_READWRITE,&old);
-#elif HOST_OS == OS_LINUX
+#elif HOST_OS == OS_LINUX || HOST_OS == OS_DARWIN
 
 	printf("\n\t ARM7_TCB addr: %p | from: %p | addr here: %p\n", ICache, ARM7_TCB, armt_init);
 
@@ -2134,7 +2162,11 @@ void armt_init()
 		verify(false);
 	}
 
+#if TARGET_IPHONE
+	memset((u8*)mmap(ICache, ICacheSize, PROT_READ | PROT_WRITE | PROT_EXEC, MAP_FIXED | MAP_PRIVATE | MAP_ANON, 0, 0),0xFF,ICacheSize);
+#else
 	memset(ICache,0xFF,ICacheSize);
+#endif
 
 #endif
 

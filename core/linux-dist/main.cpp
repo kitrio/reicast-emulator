@@ -15,44 +15,45 @@
 #include "hw/sh4/dyna/blockmanager.h"
 #include <unistd.h>
 
-
-
-
-#if defined(SUPPORT_X11)
-	#include <X11/Xlib.h>
-	#include <X11/Xatom.h>
-	#include <X11/Xutil.h>
+#if defined(TARGET_EMSCRIPTEN)
+	#include <emscripten.h>
 #endif
 
-#if !defined(ANDROID)
-	#include <linux/joystick.h>
-	#include <sys/stat.h> 
-	#include <sys/types.h> 
+#if defined(SUPPORT_DISPMANX)
+	#include "linux-dist/dispmanx.h"
+#endif
+
+#if defined(SUPPORT_X11)
+	#include "linux-dist/x11.h"
+#endif
+
+#if defined(USE_SDL)
+	#include "sdl/sdl.h"
+#endif
+
+#if defined(USES_HOMEDIR)
+	#include <sys/stat.h>
+#endif
+
+#if defined(USE_EVDEV)
+	#include "linux-dist/evdev.h"
+#endif
+
+#if defined(USE_JOYSTICK)
+	#include "linux-dist/joystick.h"
 #endif
 
 #ifdef TARGET_PANDORA
-#include <signal.h>
-#include <execinfo.h>
-#include <sys/soundcard.h>
-	
-#define WINDOW_WIDTH	800
-#else
-#define WINDOW_WIDTH	640
+	#include <signal.h>
+	#include <execinfo.h>
+	#include <sys/soundcard.h>
 #endif
-#define WINDOW_HEIGHT	480
 
-void* x11_win=0,* x11_disp=0;
-void* libPvr_GetRenderTarget() 
-{ 
-	return x11_win; 
-}
+#if FEAT_HAS_NIXPROF
+#include "profiler/profiler.h"
+#endif
 
-void* libPvr_GetRenderSurface() 
-{ 
-	return x11_disp;
-}
-
-int msgboxf(const wchar* text,unsigned int type,...)
+int msgboxf(const wchar* text, unsigned int type, ...)
 {
 	va_list args;
 
@@ -66,659 +67,399 @@ int msgboxf(const wchar* text,unsigned int type,...)
 	return MBX_OK;
 }
 
+void* x11_win = 0;
+void* x11_disp = 0;
 
+void* libPvr_GetRenderTarget()
+{
+	return x11_win;
+}
 
-u16 kcode[4];
+void* libPvr_GetRenderSurface()
+{
+	return x11_disp;
+}
+
+u16 kcode[4] = {0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF};
+u8 rt[4] = {0, 0, 0, 0};
+u8 lt[4] = {0, 0, 0, 0};
 u32 vks[4];
-s8 joyx[4],joyy[4];
-u8 rt[4],lt[4];
-
-enum DCPad {
-	Btn_C		= 1,
-	Btn_B		= 1<<1,
-	Btn_A		= 1<<2,
-	Btn_Start	= 1<<3,
-	DPad_Up		= 1<<4,
-	DPad_Down	= 1<<5,
-	DPad_Left	= 1<<6,
-	DPad_Right	= 1<<7,
-	Btn_Z		= 1<<8,
-	Btn_Y		= 1<<9,
-	Btn_X		= 1<<10,
-	Btn_D		= 1<<11,
-	DPad2_Up	= 1<<12,
-	DPad2_Down	= 1<<13,
-	DPad2_Left	= 1<<14,
-	DPad2_Right	= 1<<15,
-
-	Axis_LT= 0x10000,
-	Axis_RT= 0x10001,
-	Axis_X= 0x20000,
-	Axis_Y= 0x20001,
-};
-
+s8 joyx[4], joyy[4];
 
 void emit_WriteCodeCache();
 
-static int JoyFD    = -1;     // Joystick file descriptor
-static int kbfd = -1; 
-#ifdef TARGET_PANDORA
-static int audio_fd = -1;
+#if defined(USE_JOYSTICK)
+	/* legacy joystick input */
+	static int joystick_fd = -1; // Joystick file descriptor
 #endif
 
-
-#define MAP_SIZE 32
-
-const u32 JMapBtn_USB[MAP_SIZE] =
-  { Btn_Y,Btn_B,Btn_A,Btn_X,0,0,0,0,0,Btn_Start };
-
-const u32 JMapAxis_USB[MAP_SIZE] =
-  { Axis_X,Axis_Y,0,0,0,0,0,0,0,0 };
-
-const u32 JMapBtn_360[MAP_SIZE] =
-  { Btn_A,Btn_B,Btn_X,Btn_Y,0,0,0,Btn_Start,0,0 };
-
-const u32 JMapAxis_360[MAP_SIZE] =
-  { Axis_X,Axis_Y,Axis_LT,0,0,Axis_RT,DPad_Left,DPad_Up,0,0 };
-
-const u32* JMapBtn=JMapBtn_USB;
-const u32* JMapAxis=JMapAxis_USB;
-
-
-void SetupInput()
+void os_SetupInput()
 {
-	for (int port=0;port<4;port++)
-	{
-		kcode[port]=0xFFFF;
-		rt[port]=0;
-		lt[port]=0;
-	}
-
-	if (true) {
-		#ifdef TARGET_PANDORA
-		const char* device = "/dev/input/event4";
-		#else
-		const char* device = "/dev/event2";
-		#endif
-		char name[256]= "Unknown";
-
-		if ((kbfd = open(device, O_RDONLY)) > 0) {
-			fcntl(kbfd,F_SETFL,O_NONBLOCK);
-			if(ioctl(kbfd, EVIOCGNAME(sizeof(name)), name) < 0) {
-				perror("evdev ioctl");
-			}
-
-			printf("The device on %s says its name is %s\n",device, name);
-
-		}
-		else
-			perror("evdev open");
-	}
-
-	// Open joystick device
-	JoyFD = open("/dev/input/js0",O_RDONLY);
-		
-	if(JoyFD>=0)
-	{
-		int AxisCount,ButtonCount;
-		char Name[128];
-
-		AxisCount   = 0;
-		ButtonCount = 0;
-		Name[0]     = '\0';
-
-		fcntl(JoyFD,F_SETFL,O_NONBLOCK);
-		ioctl(JoyFD,JSIOCGAXES,&AxisCount);
-		ioctl(JoyFD,JSIOCGBUTTONS,&ButtonCount);
-		ioctl(JoyFD,JSIOCGNAME(sizeof(Name)),&Name);
-		
-		printf("SDK: Found '%s' joystick with %d axis and %d buttons\n",Name,AxisCount,ButtonCount);
-
-		if (strcmp(Name,"Microsoft X-Box 360 pad")==0)
-		{
-			JMapBtn=JMapBtn_360;
-			JMapAxis=JMapAxis_360;
-			printf("Using Xbox 360 map\n");
-		}
-	}
-}
-
-bool HandleKb(u32 port) {
-	struct input_event ie;
-	if (kbfd < 0)
-		return false;
-
-	#if defined(TARGET_GCW0)
-
-                #define KEY_A           0x1D
-                #define KEY_B           0x38
-                #define KEY_X           0x2A
-                #define KEY_Y           0x39
-                #define KEY_L           0xF
-                #define KEY_R           0xE
-                #define KEY_SELECT      0x1
-                #define KEY_START       0x1C
-                #define KEY_LEFT        0x69
-                #define KEY_RIGHT       0x6A
-                #define KEY_UP          0x67
-                #define KEY_DOWN        0x6C
-                #define KEY_LOCK        0x77    // Note that KEY_LOCK is a switch and remains pressed until it's switched back
- 
-	static int keys[13];
-	while(read(kbfd,&ie,sizeof(ie))==sizeof(ie)) {
-		//printf("type %i key %i state %i\n", ie.type, ie.code, ie.value);
-		if (ie.type=EV_KEY)
-		switch (ie.code) {
-			case KEY_SELECT:	keys[9]=ie.value; break;
-			case KEY_UP:	keys[1]=ie.value; break;
-			case KEY_DOWN:	keys[2]=ie.value; break;
-			case KEY_LEFT:	keys[3]=ie.value; break;
-			case KEY_RIGHT:	keys[4]=ie.value; break;
-			case KEY_Y:keys[5]=ie.value; break;
-			case KEY_B:keys[6]=ie.value; break;
-			case KEY_A:	keys[7]=ie.value; break;
-			case KEY_X:	keys[8]=ie.value; break;
-			case KEY_START:		keys[12]=ie.value; break;
-		}
-	}
-	if (keys[6]) { kcode[port] &= ~Btn_A; }
-	if (keys[7]) { kcode[port] &= ~Btn_B; }
-	if (keys[5]) { kcode[port] &= ~Btn_Y; }
-	if (keys[8]) { kcode[port] &= ~Btn_X; }
-	if (keys[1]) { kcode[port] &= ~DPad_Up;    }
-	if (keys[2]) { kcode[port] &= ~DPad_Down;  }
-	if (keys[3]) { kcode[port] &= ~DPad_Left;  }
-	if (keys[4]) { kcode[port] &= ~DPad_Right; }
-	if (keys[12]){ kcode[port] &= ~Btn_Start; }
-	if (keys[9]){ die("death by escape key"); } 
-	if (keys[10]) rt[port]=255;
-	if (keys[11]) lt[port]=255;
-	
-	return true;
-
-	#elif defined(TARGET_PANDORA)
-	static int keys[13];
-	while(read(kbfd,&ie,sizeof(ie))==sizeof(ie)) {
-		if (ie.type=EV_KEY)
-		//printf("type %i key %i state %i\n", ie.type, ie.code, ie.value);
-		switch (ie.code) {
-			case KEY_SPACE: keys[0]=ie.value; break;
-			case KEY_UP:	keys[1]=ie.value; break;
-			case KEY_DOWN:	keys[2]=ie.value; break;
-			case KEY_LEFT:	keys[3]=ie.value; break;
-			case KEY_RIGHT:	keys[4]=ie.value; break;
-			case KEY_PAGEUP:keys[5]=ie.value; break;
-			case KEY_PAGEDOWN:keys[6]=ie.value; break;
-			case KEY_END:	keys[7]=ie.value; break;
-			case KEY_HOME:	keys[8]=ie.value; break;
-			case KEY_MENU:		keys[9]=ie.value; break;
-			case KEY_RIGHTSHIFT:	keys[10]=ie.value; break;
-			case KEY_RIGHTCTRL:	keys[11]=ie.value; break;
-			case KEY_LEFTALT:		keys[12]=ie.value; break;
-		}
-	}
-			
-	if (keys[0]) { kcode[port] &= ~Btn_C; }
-	if (keys[6]) { kcode[port] &= ~Btn_A; }
-	if (keys[7]) { kcode[port] &= ~Btn_B; }
-	if (keys[5]) { kcode[port] &= ~Btn_Y; }
-	if (keys[8]) { kcode[port] &= ~Btn_X; }
-	if (keys[1]) { kcode[port] &= ~DPad_Up;    }
-	if (keys[2]) { kcode[port] &= ~DPad_Down;  }
-	if (keys[3]) { kcode[port] &= ~DPad_Left;  }
-	if (keys[4]) { kcode[port] &= ~DPad_Right; }
-	if (keys[12]){ kcode[port] &= ~Btn_Start; }
-	if (keys[9]){ die("death by escape key"); } 
-	if (keys[10]) rt[port]=255;
-	if (keys[11]) lt[port]=255;
-	
-	return true;
-	#else
-  	while(read(kbfd,&ie,sizeof(ie))==sizeof(ie)) {
-		printf("type %i key %i state %i\n", ie.type, ie.code, ie.value);
-	}
+	#if defined(USE_EVDEV)
+		input_evdev_init();
 	#endif
 
+	#if defined(USE_JOYSTICK)
+		int joystick_device_id = cfgLoadInt("input", "joystick_device_id", JOYSTICK_DEFAULT_DEVICE_ID);
+		if (joystick_device_id < 0) {
+			puts("Legacy Joystick input disabled by config.\n");
+		}
+		else
+		{
+			int joystick_device_length = snprintf(NULL, 0, JOYSTICK_DEVICE_STRING, joystick_device_id);
+			char* joystick_device = (char*)malloc(joystick_device_length + 1);
+			sprintf(joystick_device, JOYSTICK_DEVICE_STRING, joystick_device_id);
+			joystick_fd = input_joystick_init(joystick_device);
+			free(joystick_device);
+		}
+	#endif
+
+	#if defined(SUPPORT_X11)
+		input_x11_init();
+	#endif
+
+	#if defined(USE_SDL)
+		input_sdl_init();
+	#endif
 }
-
-bool HandleJoystick(u32 port)
-{
-  
-  struct js_event JE;
-
-  // Joystick must be connected
-  if(JoyFD<0) return false;
-
-  while(read(JoyFD,&JE,sizeof(JE))==sizeof(JE))
-	  if (JE.number<MAP_SIZE)
-	  {
-		  switch(JE.type & ~JS_EVENT_INIT)
-		  {
-		  case JS_EVENT_AXIS:
-			  {
-				  u32 mt=JMapAxis[JE.number]>>16;
-				  u32 mo=JMapAxis[JE.number]&0xFFFF;
-				  
-				 //printf("AXIS %d,%d\n",JE.number,JE.value);
-				  s8 v=(s8)(JE.value/256); //-127 ... + 127 range
-				  
-				  if (mt==0)
-				  {
-					  kcode[port]|=mo;
-					  kcode[port]|=mo*2;
-					  if (v<-64)
-					  {
-						  kcode[port]&=~mo;
-					  }
-					  else if (v>64)
-					  {
-						  kcode[port]&=~(mo*2);
-					  }
-
-					 // printf("Mapped to %d %d %d\n",mo,kcode[port]&mo,kcode[port]&(mo*2));
-				  }
-				  else if (mt==1)
-				  {
-					  if (v>=0) v++;	//up to 255
-
-					//   printf("AXIS %d,%d Mapped to %d %d %d\n",JE.number,JE.value,mo,v,v+127);
-
-					  if (mo==0)
-						  lt[port]=v+127;
-					  else if (mo==1)
-						  rt[port]=v+127;
-				  }
-				  else if (mt==2)
-				  {
-					//  printf("AXIS %d,%d Mapped to %d %d [%d]",JE.number,JE.value,mo,v);
-					  if (mo==0)
-						  joyx[port]=v;
-					  else if (mo==1)
-						  joyy[port]=v;
-				  }
-			  }
-			  break;
-
-		  case JS_EVENT_BUTTON:
-			  {
-				  u32 mt=JMapBtn[JE.number]>>16;
-				  u32 mo=JMapBtn[JE.number]&0xFFFF;
-
-				// printf("BUTTON %d,%d\n",JE.number,JE.value);
-
-				  if (mt==0)
-				  {
-					 // printf("Mapped to %d\n",mo);
-					  if (JE.value)
-						  kcode[port]&=~mo;
-					  else
-						  kcode[port]|=mo;
-				  }
-				  else if (mt==1)
-				  {
-					 // printf("Mapped to %d %d\n",mo,JE.value?255:0);
-					  if (mo==0)
-						  lt[port]=JE.value?255:0;
-					  else if (mo==1)
-						  rt[port]=JE.value?255:0;
-				  }
-
-			  }
-			  break;
-		  }
-	  }
-
-	  return true;
-}
-
-extern bool KillTex;
-
-#ifdef TARGET_PANDORA
-static Cursor CreateNullCursor(Display *display, Window root)
-{
-	Pixmap cursormask; 
-	XGCValues xgc;
-	GC gc;
-	XColor dummycolour;
-	Cursor cursor;
-	
-	cursormask = XCreatePixmap(display, root, 1, 1, 1/*depth*/);
-	xgc.function = GXclear;
-	gc =  XCreateGC(display, cursormask, GCFunction, &xgc);
-	XFillRectangle(display, cursormask, gc, 0, 0, 1, 1);
-	dummycolour.pixel = 0;
-	dummycolour.red = 0;
-	dummycolour.flags = 04;
-	cursor = XCreatePixmapCursor(display, cursormask, cursormask,
-	&dummycolour,&dummycolour, 0,0);
-	XFreePixmap(display,cursormask);
-	XFreeGC(display,gc);
-	return cursor;
-}
-#endif
 
 void UpdateInputState(u32 port)
 {
-	static char key = 0;
+	#if defined(TARGET_EMSCRIPTEN)
+		return;
+	#endif
 
-	kcode[port]=0xFFFF;
-	rt[port]=0;
-	lt[port]=0;
-	
-#if defined(TARGET_GCW0) || defined(TARGET_PANDORA)
-	HandleJoystick(port);
-	HandleKb(port);
-return;
-#endif
-	for(;;)
-	{
-		key = 0;
-		read(STDIN_FILENO, &key, 1);
+	#if defined(USE_JOYSTICK)
+		input_joystick_handle(joystick_fd, port);
+	#endif
 
-		if (0  == key || EOF == key) break;
-		if ('k' == key) KillTex=true;
+	#if defined(USE_EVDEV)
+		input_evdev_handle(port);
+	#endif
 
-#ifdef TARGET_PANDORA
-		if (' ' == key) { kcode[port] &= ~Btn_C; }
-		if ('6' == key) { kcode[port] &= ~Btn_A; }
-		if ('O' == key) { kcode[port] &= ~Btn_B; }
-		if ('5' == key) { kcode[port] &= ~Btn_Y; }
-		if ('H' == key) { kcode[port] &= ~Btn_X; }
-		if ('A' == key) { kcode[port] &= ~DPad_Up;    }
-		if ('B' == key) { kcode[port] &= ~DPad_Down;  }
-		if ('D' == key) { kcode[port] &= ~DPad_Left;  }
-		if ('C' == key) { kcode[port] &= ~DPad_Right; }
-#else
-		if ('b' == key) { kcode[port] &= ~Btn_C; }
-		if ('v' == key) { kcode[port] &= ~Btn_A; }
-		if ('c' == key) { kcode[port] &= ~Btn_B; }
-		if ('x' == key) { kcode[port] &= ~Btn_Y; }
-		if ('z' == key) { kcode[port] &= ~Btn_X; }
-		if ('i' == key) { kcode[port] &= ~DPad_Up;    }
-		if ('k' == key) { kcode[port] &= ~DPad_Down;  }
-		if ('j' == key) { kcode[port] &= ~DPad_Left;  }
-		if ('l' == key) { kcode[port] &= ~DPad_Right; }
-#endif
-		if (0x0A== key) { kcode[port] &= ~Btn_Start;  }
-#ifdef TARGET_PANDORA
-		if ('q' == key){ die("death by escape key"); } 
-#endif
-		//if (0x1b == key){ die("death by escape key"); } //this actually quits when i press left for some reason
-
-		if ('a' == key) rt[port]=255;
-		if ('s' == key) lt[port]=255;
-#if !defined(HOST_NO_REC)
-		if ('b' == key)	emit_WriteCodeCache();
-		if ('n' == key)	bm_Reset();
-		if ('m' == key)	bm_Sort();
-		if (',' == key)	{ emit_WriteCodeCache(); bm_Sort(); }
-#endif
-	}
+	#if defined(USE_SDL)
+		input_sdl_handle(port);
+	#endif
 }
+
+void UpdateVibration(u32 port, u32 value)
+{
+	u8 POW_POS = (value >> 8) & 0x3;
+	u8 POW_NEG = (value >> 12) & 0x3;
+	u8 FREQ = (value >> 16) & 0xFF;
+
+	double pow = (POW_POS + POW_NEG) / 7.0;
+	double pow_l = pow * (0x3B - FREQ) / 17.0;
+	double pow_r = pow * (FREQ - 0x07) / 15.0;
+
+	if (pow_l > 1.0) pow_l = 1.0;
+	if (pow_r > 1.0) pow_r = 1.0;
+
+	u16 pow_strong = (u16)(65535 * pow_l);
+	u16 pow_weak = (u16)(65535 * pow_r);
+
+	#if defined(USE_EVDEV)
+		input_evdev_rumble(port, pow_strong, pow_weak);
+	#endif
+
+	#if defined(USE_SDL)
+		input_sdl_rumble(port, pow_strong, pow_weak);
+	#endif
+}
+
 
 void os_DoEvents()
 {
-
+	#if defined(SUPPORT_X11)
+		input_x11_handle();
+		event_x11_handle();
+	#endif
 }
 
 void os_SetWindowText(const char * text)
 {
-	if (0==x11_win || 0==x11_disp || 1)
-		printf("%s\n",text);
-#if defined(SUPPORT_X11)
-	else {
-		XChangeProperty((Display*)x11_disp, (Window)x11_win,
-			XInternAtom((Display*)x11_disp, "WM_NAME",		False),		//WM_NAME,
-			XInternAtom((Display*)x11_disp, "UTF8_STRING",	False),		//UTF8_STRING,
-			8, PropModeReplace, (const unsigned char *)text, strlen(text));
-	}
-#endif
+	printf("%s\n",text);
+	#if defined(SUPPORT_X11)
+		x11_window_set_text(text);
+	#endif
+	#if defined(USE_SDL)
+		sdl_window_set_text(text);
+	#endif
 }
 
-
-int ndcid=0;
 void os_CreateWindow()
 {
-#if defined(SUPPORT_X11)
-	if (cfgLoadInt("pvr","nox11",0)==0)
-		{
-			// X11 variables
-			Window				x11Window	= 0;
-			Display*			x11Display	= 0;
-			long				x11Screen	= 0;
-			XVisualInfo*		x11Visual	= 0;
-			Colormap			x11Colormap	= 0;
-
-			/*
-			Step 0 - Create a NativeWindowType that we can use it for OpenGL ES output
-			*/
-			Window					sRootWindow;
-			XSetWindowAttributes	sWA;
-			unsigned int			ui32Mask;
-			int						i32Depth;
-
-			// Initializes the display and screen
-			x11Display = XOpenDisplay( 0 );
-			if (!x11Display && !(x11Display = XOpenDisplay( ":0" )))
-			{
-				printf("Error: Unable to open X display\n");
-				return;
-			}
-			x11Screen = XDefaultScreen( x11Display );
-
-			// Gets the window parameters
-			sRootWindow = RootWindow(x11Display, x11Screen);
-			i32Depth = DefaultDepth(x11Display, x11Screen);
-			x11Visual = new XVisualInfo;
-			XMatchVisualInfo( x11Display, x11Screen, i32Depth, TrueColor, x11Visual);
-			if (!x11Visual)
-			{
-				printf("Error: Unable to acquire visual\n");
-				return;
-			}
-			x11Colormap = XCreateColormap( x11Display, sRootWindow, x11Visual->visual, AllocNone );
-			sWA.colormap = x11Colormap;
-
-			// Add to these for handling other events
-			sWA.event_mask = StructureNotifyMask | ExposureMask | ButtonPressMask | ButtonReleaseMask | KeyPressMask | KeyReleaseMask;
-			ui32Mask = CWBackPixel | CWBorderPixel | CWEventMask | CWColormap;
-
-			#ifdef TARGET_PANDORA
-			int width=800;
-			int height=480;
-			#else
-			int width=cfgLoadInt("x11","width", WINDOW_WIDTH);
-			int height=cfgLoadInt("x11","height", WINDOW_HEIGHT);
-			#endif
-
-			if (width==-1)
-			{
-				width=XDisplayWidth(x11Display,x11Screen);
-				height=XDisplayHeight(x11Display,x11Screen);
-			}
-			// Creates the X11 window
-			x11Window = XCreateWindow( x11Display, RootWindow(x11Display, x11Screen), (ndcid%3)*640, (ndcid/3)*480, width, height,
-				0, CopyFromParent, InputOutput, CopyFromParent, ui32Mask, &sWA);
-			#ifdef TARGET_PANDORA
-			// fullscreen
-			Atom wmState = XInternAtom(x11Display, "_NET_WM_STATE", False);
-			Atom wmFullscreen = XInternAtom(x11Display, "_NET_WM_STATE_FULLSCREEN", False);
-			XChangeProperty(x11Display, x11Window, wmState, XA_ATOM, 32, PropModeReplace, (unsigned char *)&wmFullscreen, 1);
-			
-			XMapRaised(x11Display, x11Window);
-			#else
-			XMapWindow(x11Display, x11Window);
-			#endif
-			XFlush(x11Display);
-
-			
-
-			//(EGLNativeDisplayType)x11Display;
-			x11_disp=(void*)x11Display;
-			x11_win=(void*)x11Window;
-		}
-		else
-			printf("Not creating X11 window ..\n");
-#endif
-}
-
-termios tios, orig_tios;
-
-int setup_curses()
-{
-    //initscr();
-    //cbreak();
-    //noecho();
-
-
-    /* Get current terminal settings */
-    if (tcgetattr(STDIN_FILENO, &orig_tios)) {
-        printf("Error getting current terminal settings\n");
-        return -1;
-    }
-
-    memcpy(&tios, &orig_tios, sizeof(struct termios));
-    tios.c_lflag &= ~ICANON;    //(ECHO|ICANON);&= ~(ICANON | ECHO | ECHOE | ECHOK | ECHONL | ECHOPRT | ECHOKE | ICRNL);
-
-    tios.c_cc[VTIME] = 0;
-    tios.c_cc[VMIN]  = 0;
-
-    if (tcsetattr(STDIN_FILENO, TCSANOW, &tios)) {
-        printf("Error applying terminal settings\n");
-        return -2;
-    }
-
-    if (tcgetattr(STDIN_FILENO, &tios)) {
-        tcsetattr(0, TCSANOW, &orig_tios);
-        printf("Error while asserting terminal settings\n");
-        return -3;
-    }
-
-    if ((tios.c_lflag & ICANON) || !(tios.c_lflag & ECHO)) {
-        tcsetattr(STDIN_FILENO, TCSANOW, &orig_tios);
-        printf("Could not apply all terminal settings\n");
-        return -4;
-    }
-
-    fcntl(STDIN_FILENO, F_SETFL, O_NONBLOCK);
-    return 1;
+	#if defined(SUPPORT_DISPMANX)
+		dispmanx_window_create();
+	#endif
+	#if defined(SUPPORT_X11)
+		x11_window_create();
+	#endif
+	#if defined(USE_SDL)
+		sdl_window_create();
+	#endif
 }
 
 void common_linux_setup();
 int dc_init(int argc,wchar* argv[]);
 void dc_run();
+void dc_term();
 
 #ifdef TARGET_PANDORA
-void gl_term();
+	void gl_term();
 
-void clean_exit(int sig_num) {
-	void *array[10];
-	size_t size;
-	
-	// close files
-	if (JoyFD>=0) close(JoyFD);
-	if (kbfd>=0) close(kbfd);
-	if(audio_fd>=0) close(audio_fd);
-
-	// Close EGL context ???
-	if (sig_num!=0)
-		gl_term();
-	
-	// close XWindow
-	if (x11_win) {
-		XDestroyWindow(x11_disp, x11_win);
-		x11_win = 0;
-	}
-	if (x11_disp) {
-		XCloseDisplay(x11_disp);
-		x11_disp = 0;
-	}
-	
-	// finish cleaning
-	if (sig_num!=0) {
-		write(2, "\nSignal received\n", sizeof("\nSignal received\n"));
-	
-		size = backtrace(array, 10);
-		backtrace_symbols_fd(array, size, STDERR_FILENO);
-		exit(1);
-	}
-}
-
-void init_sound()
-{
-    if((audio_fd=open("/dev/dsp",O_WRONLY))<0)
-		printf("Couldn't open /dev/dsp.\n");
-    else
+	void clean_exit(int sig_num)
 	{
-	  printf("sound enabled, dsp openned for write\n");
-	  int tmp=44100;
-	  int err_ret;
-	  err_ret=ioctl(audio_fd,SNDCTL_DSP_SPEED,&tmp);
-	  printf("set Frequency to %i, return %i (rate=%i)\n", 44100, err_ret, tmp);
-	  int channels=2;
-	  err_ret=ioctl(audio_fd, SNDCTL_DSP_CHANNELS, &channels);	  
-	  printf("set dsp to stereo (%i => %i)\n", channels, err_ret);
-	  int format=AFMT_S16_LE;
-	  err_ret=ioctl(audio_fd, SNDCTL_DSP_SETFMT, &format);
-	  printf("set dsp to %s audio (%i/%i => %i)\n", "16bits signed" ,AFMT_S16_LE, format, err_ret);
+		void* array[10];
+		size_t size;
+
+		if (joystick_fd >= 0) { close(joystick_fd); }
+		for (int port = 0; port < 4 ; port++)
+		{
+			if (evdev_controllers[port]->fd >= 0)
+			{
+				close(evdev_controllers[port]->fd);
+			}
+		}
+
+		// Close EGL context ???
+		if (sig_num!=0)
+		{
+			gl_term();
+		}
+
+		x11_window_destroy():
+
+		// finish cleaning
+		if (sig_num!=0)
+		{
+			write(2, "\nSignal received\n", sizeof("\nSignal received\n"));
+
+			size = backtrace(array, 10);
+			backtrace_symbols_fd(array, size, STDERR_FILENO);
+			exit(1);
+		}
 	}
-}
 #endif
+
+string find_user_config_dir()
+{
+	#ifdef USES_HOMEDIR
+		struct stat info;
+		string home = "";
+		if(getenv("HOME") != NULL)
+		{
+			// Support for the legacy config dir at "$HOME/.reicast"
+			string legacy_home = (string)getenv("HOME") + "/.reicast";
+			if((stat(legacy_home.c_str(), &info) == 0) && (info.st_mode & S_IFDIR))
+			{
+				// "$HOME/.reicast" already exists, let's use it!
+				return legacy_home;
+			}
+
+			/* If $XDG_CONFIG_HOME is not set, we're supposed to use "$HOME/.config" instead.
+			 * Consult the XDG Base Directory Specification for details:
+			 *   http://standards.freedesktop.org/basedir-spec/basedir-spec-latest.html#variables
+			 */
+			home = (string)getenv("HOME") + "/.config/reicast";
+		}
+		if(getenv("XDG_CONFIG_HOME") != NULL)
+		{
+			// If XDG_CONFIG_HOME is set explicitly, we'll use that instead of $HOME/.config
+			home = (string)getenv("XDG_CONFIG_HOME") + "/reicast";
+		}
+
+		if(!home.empty())
+		{
+			if((stat(home.c_str(), &info) != 0) || !(info.st_mode & S_IFDIR))
+			{
+				// If the directory doesn't exist yet, create it!
+				mkdir(home.c_str(), 0755);
+			}
+			return home;
+		}
+	#endif
+
+	// Unable to detect config dir, use the current folder
+	return ".";
+}
+
+string find_user_data_dir()
+{
+	#ifdef USES_HOMEDIR
+		struct stat info;
+		string data = "";
+		if(getenv("HOME") != NULL)
+		{
+			// Support for the legacy config dir at "$HOME/.reicast"
+			string legacy_data = (string)getenv("HOME") + "/.reicast";
+			if((stat(legacy_data.c_str(), &info) == 0) && (info.st_mode & S_IFDIR))
+			{
+				// "$HOME/.reicast" already exists, let's use it!
+				return legacy_data;
+			}
+
+			/* If $XDG_DATA_HOME is not set, we're supposed to use "$HOME/.local/share" instead.
+			 * Consult the XDG Base Directory Specification for details:
+			 *   http://standards.freedesktop.org/basedir-spec/basedir-spec-latest.html#variables
+			 */
+			data = (string)getenv("HOME") + "/.local/share/reicast";
+		}
+		if(getenv("XDG_DATA_HOME") != NULL)
+		{
+			// If XDG_DATA_HOME is set explicitly, we'll use that instead of $HOME/.config
+			data = (string)getenv("XDG_DATA_HOME") + "/reicast";
+		}
+
+		if(!data.empty())
+		{
+			if((stat(data.c_str(), &info) != 0) || !(info.st_mode & S_IFDIR))
+			{
+				// If the directory doesn't exist yet, create it!
+				mkdir(data.c_str(), 0755);
+			}
+			return data;
+		}
+	#endif
+
+	// Unable to detect config dir, use the current folder
+	return ".";
+}
+
+std::vector<string> find_system_config_dirs()
+{
+	std::vector<string> dirs;
+	if (getenv("XDG_CONFIG_DIRS") != NULL)
+	{
+		string s = (string)getenv("XDG_CONFIG_DIRS");
+
+		string::size_type pos = 0;
+		string::size_type n = s.find(":", pos);
+		while(n != std::string::npos)
+		{
+			dirs.push_back(s.substr(pos, n-pos) + "/reicast");
+			pos = n + 1;
+			n = s.find(":", pos);
+		}
+		// Separator not found
+		dirs.push_back(s.substr(pos) + "/reicast");
+	}
+	else
+	{
+		dirs.push_back("/etc/reicast"); // This isn't part of the XDG spec, but much more common than /etc/xdg/
+		dirs.push_back("/etc/xdg/reicast");
+	}
+	return dirs;
+}
+
+std::vector<string> find_system_data_dirs()
+{
+	std::vector<string> dirs;
+	if (getenv("XDG_DATA_DIRS") != NULL)
+	{
+		string s = (string)getenv("XDG_DATA_DIRS");
+
+		string::size_type pos = 0;
+		string::size_type n = s.find(":", pos);
+		while(n != std::string::npos)
+		{
+			dirs.push_back(s.substr(pos, n-pos) + "/reicast");
+			pos = n + 1;
+			n = s.find(":", pos);
+		}
+		// Separator not found
+		dirs.push_back(s.substr(pos) + "/reicast");
+	}
+	else
+	{
+		dirs.push_back("/usr/local/share/reicast");
+		dirs.push_back("/usr/share/reicast");
+	}
+	return dirs;
+}
+
 
 int main(int argc, wchar* argv[])
 {
-	//if (argc==2) 
-		//ndcid=atoi(argv[1]);
+	#ifdef TARGET_PANDORA
+		signal(SIGSEGV, clean_exit);
+		signal(SIGKILL, clean_exit);
+	#endif
 
-	if (setup_curses() < 0) die("failed to setup curses!\n");
-#ifdef TARGET_PANDORA
-	signal(SIGSEGV, clean_exit);
-	signal(SIGKILL, clean_exit);
-	
-	init_sound();
-#endif
 
-#if defined(USES_HOMEDIR)
-	string home = (string)getenv("HOME");
-	if(home.c_str())
-	{
-		home += "/.reicast";
-		mkdir(home.c_str(), 0755); // create the directory if missing
-		SetHomeDir(home);
+	if(ParseCommandLine(argc,argv)) {
+		return rv_cli_finish;
 	}
-	else
-		SetHomeDir(".");
-#else
-	SetHomeDir(".");
-#endif
 
-	printf("Home dir is: %s\n",GetPath("/").c_str());
+	/* Set directories */
+	set_user_config_dir(find_user_config_dir());
+	set_user_data_dir(find_user_data_dir());
+	std::vector<string> dirs;
+	dirs = find_system_config_dirs();
+	for(unsigned int i = 0; i < dirs.size(); i++)
+	{
+		add_system_data_dir(dirs[i]);
+	}
+	dirs = find_system_data_dirs();
+	for(unsigned int i = 0; i < dirs.size(); i++)
+	{
+		add_system_data_dir(dirs[i]);
+	}
+	printf("Config dir is: %s\n", get_writable_config_path("/").c_str());
+	printf("Data dir is:   %s\n", get_writable_data_path("/").c_str());
+
+	#if defined(USE_SDL)
+		if (SDL_Init(0) != 0)
+		{
+			die("SDL: Initialization failed!");
+		}
+	#endif
 
 	common_linux_setup();
 
-	SetupInput();
-	
 	settings.profile.run_counts=0;
-		
+
 	dc_init(argc,argv);
 
-	dc_run();
-	
-#ifdef TARGET_PANDORA
-	clean_exit(0);
-#endif
+	#if !defined(TARGET_EMSCRIPTEN)
+		#if FEAT_HAS_NIXPROF
+		install_prof_handler(0);
+		#endif
+		dc_run();
+	#else
+		emscripten_set_main_loop(&dc_run, 100, false);
+	#endif
+
+	#ifdef TARGET_PANDORA
+		clean_exit(0);
+	#endif
+
+	dc_term();
+
+	#if defined(USE_EVDEV)
+		input_evdev_close();
+	#endif
+
+	#if defined(SUPPORT_X11)
+		x11_window_destroy();
+	#endif
 
 	return 0;
-}
-
-u32 os_Push(void* frame, u32 samples, bool wait)
-{
-#ifdef TARGET_PANDORA
-	write(audio_fd, frame, samples*4);
-#endif
-return 1;
 }
 #endif
 
 int get_mic_data(u8* buffer) { return 0; }
 int push_vmu_screen(u8* buffer) { return 0; }
+
+void os_DebugBreak()
+{
+	#if !defined(TARGET_EMSCRIPTEN)
+		raise(SIGTRAP);
+	#else
+		printf("DEBUGBREAK!\n");
+		exit(-1);
+	#endif
+}
+
+
+

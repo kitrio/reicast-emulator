@@ -4,8 +4,6 @@
 //main system mem
 extern VArray2 mem_b;
 
-#define MEMCALL __fastcall
-
 #include "hw/mem/_vmem.h"
 #include "modules/mmu.h"
 
@@ -23,6 +21,7 @@ extern VArray2 mem_b;
 #define WriteMem64 _vmem_WriteMem64
 //#define WriteMem64(addr,reg) {  _vmem_WriteMem32(addr,((u32*)reg)[0]);_vmem_WriteMem32((addr)+4, ((u32*)reg)[1]); }
 #else
+#include "modules/mmu.h"
 #define ReadMem8 mmu_ReadMem8
 #define ReadMem16 mmu_ReadMem16
 #define IReadMem16 mmu_IReadMem16
@@ -91,3 +90,4 @@ u32 GetRamPageFromAddress(u32 RamAddress);
 
 bool LoadRomFiles(const string& root);
 void SaveRomFiles(const string& root);
+bool LoadHle(const string& root);

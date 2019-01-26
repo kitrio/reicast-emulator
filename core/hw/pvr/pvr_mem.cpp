@@ -13,7 +13,6 @@
 
 //TODO : move code later to a plugin
 //TODO : Fix registers arrays , they must be smaller now doe to the way SB registers are handled
-#include "types.h"
 #include "hw/holly/holly_intc.h"
 
 
@@ -195,11 +194,11 @@ u8 DYNACALL pvr_read_area1_8(u32 addr)
 
 u16 DYNACALL pvr_read_area1_16(u32 addr)
 {
-	return *(u16*)&vram[pvr_map32(addr)];
+	return *(u16*)&vram[pvr_map32(addr) & VRAM_MASK];
 }
 u32 DYNACALL pvr_read_area1_32(u32 addr)
 {
-	return *(u32*)&vram[pvr_map32(addr)];
+	return *(u32*)&vram[pvr_map32(addr) & VRAM_MASK];
 }
 
 //write
@@ -209,11 +208,11 @@ void DYNACALL pvr_write_area1_8(u32 addr,u8 data)
 }
 void DYNACALL pvr_write_area1_16(u32 addr,u16 data)
 {
-	*(u16*)&vram[pvr_map32(addr)]=data;
+	*(u16*)&vram[pvr_map32(addr) & VRAM_MASK]=data;
 }
 void DYNACALL pvr_write_area1_32(u32 addr,u32 data)
 {
-	*(u32*)&vram[pvr_map32(addr)]=data;
+	*(u32*)&vram[pvr_map32(addr) & VRAM_MASK] = data;
 }
 
 void TAWrite(u32 address,u32* data,u32 count)
@@ -237,7 +236,6 @@ void TAWrite(u32 address,u32* data,u32 count)
 }
 
 #include "hw/sh4/sh4_mmr.h"
-#include "hw/pvr/ta.h"
 
 void NOINLINE MemWrite32(void* dst, void* src)
 {
@@ -277,33 +275,32 @@ void pvr_Reset(bool Manual)
 		vram.Zero();
 }
 
+#define VRAM_BANK_BIT 0x400000
 
 u32 pvr_map32(u32 offset32)
 {
 		//64b wide bus is achieved by interleaving the banks every 32 bits
-		//so bank is Address<<3
-		//bits <4 are <<1 to create space for bank num
-		//bank 0 is mapped at 400000 (32b offset) and after
-		const u32 bank_bit=VRAM_MASK-(VRAM_MASK/2);
-		const u32 static_bits=(VRAM_MASK-(bank_bit*2)+1)|3;
-		const u32 moved_bits=VRAM_MASK-static_bits-bank_bit;
+		const u32 bank_bit = VRAM_BANK_BIT;
+		const u32 static_bits = VRAM_MASK - (VRAM_BANK_BIT * 2 - 1) | 3;
+		const u32 offset_bits = (VRAM_BANK_BIT - 1) & ~3;
 
-		u32 bank=(offset32&bank_bit)/bank_bit*4;//bank will be used as upper offset too
-		u32 lv=offset32&static_bits; //these will survive
-		offset32&=moved_bits;
-		offset32<<=1;
-		//       |inbank offset    |       bank id        | lower 2 bits (not changed)
-		u32 rv=  offset32 + bank                  + lv;
- 
+		u32 bank = (offset32 & VRAM_BANK_BIT) / VRAM_BANK_BIT;
+
+		u32 rv = offset32 & static_bits;
+
+		rv |= (offset32 & offset_bits) * 2;
+
+		rv |= bank * 4;
+
 		return rv;
 }
 
 
 f32 vrf(u32 addr)
 {
-	return *(f32*)&vram[pvr_map32(addr)];
+	return *(f32*)&vram[pvr_map32(addr) & VRAM_MASK];
 }
 u32 vri(u32 addr)
 {
-	return *(u32*)&vram[pvr_map32(addr)];
+	return *(u32*)&vram[pvr_map32(addr) & VRAM_MASK];
 }

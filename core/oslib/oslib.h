@@ -7,16 +7,14 @@ double os_GetSeconds();
 
 void os_DoEvents();
 void os_CreateWindow();
-bool os_IsAudioBuffered();
-int os_getusedSamples();
-bool os_IsAudioBufferedLots();
+void os_SetupInput();
 void WriteSample(s16 right, s16 left);
 
 #if BUILD_COMPILER==COMPILER_VC
 #include <intrin.h>
 #endif
 
-u32 INLINE bitscanrev(u32 v)
+u32 static INLINE bitscanrev(u32 v)
 {
 #if (BUILD_COMPILER==COMPILER_GCC)
 	return 31-__builtin_clz(v);
@@ -29,3 +27,5 @@ u32 INLINE bitscanrev(u32 v)
 
 //FIX ME
 #define __assume(x)
+
+void os_DebugBreak();

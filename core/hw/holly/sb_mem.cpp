@@ -12,10 +12,10 @@
 #include "hw/pvr/pvr_mem.h"
 #include "hw/gdrom/gdrom_if.h"
 #include "hw/aica/aica_if.h"
-//#include "naomi/naomi.h"
+#include "hw/naomi/naomi.h"
 
-#include "types.h"
 #include "hw/flashrom/flashrom.h"
+#include "reios/reios.h"
 
 RomChip sys_rom(BIOS_SIZE);
 
@@ -55,7 +55,15 @@ void SaveRomFiles(const string& root)
 	sys_nvmem.Save(root, ROM_PREFIX, "nvmem.bin", "nvmem");
 }
 
-#if (DC_PLATFORM == DC_PLATFORM_NORMAL) || (DC_PLATFORM == DC_PLATFORM_DEV_UNIT) || (DC_PLATFORM == DC_PLATFORM_NAOMI) || (DC_PLATFORM == DC_PLATFORM_NAOMI2)
+bool LoadHle(const string& root) {
+	if (!sys_nvmem.Load(root, ROM_PREFIX, "%nvmem.bin;%flash_wb.bin;%flash.bin;%flash.bin.bin", "nvram")) {
+		printf("No nvmem loaded\n");
+	}
+
+	return reios_init(sys_rom.data, sys_nvmem.data);
+}
+
+#if (DC_PLATFORM == DC_PLATFORM_DREAMCAST) || (DC_PLATFORM == DC_PLATFORM_DEV_UNIT) || (DC_PLATFORM == DC_PLATFORM_NAOMI) || (DC_PLATFORM == DC_PLATFORM_NAOMI2)
 
 u32 ReadBios(u32 addr,u32 sz) { return sys_rom.Read(addr,sz); }
 void WriteBios(u32 addr,u32 data,u32 sz) { EMUERROR4("Write to [Boot ROM] is not possible, addr=%x,data=%x,size=%d",addr,data,sz); }
@@ -143,7 +151,7 @@ T DYNACALL ReadMem_area0(u32 addr)
 		else if ((addr>= 0x005F7000) && (addr<= 0x005F70FF)) // GD-ROM
 		{
 			//EMUERROR3("Read from area0_32 not implemented [GD-ROM], addr=%x,size=%d",addr,sz);
-	#if defined(BUILD_NAOMI	) || defined(BUILD_ATOMISWAVE)
+	#if DC_PLATFORM == DC_PLATFORM_NAOMI
 			return (T)ReadMem_naomi(addr,sz);
 	#else
 			return (T)ReadMem_gdrom(addr,sz);
@@ -157,7 +165,9 @@ T DYNACALL ReadMem_area0(u32 addr)
 		else if (likely((addr>= 0x005F8000) && (addr<=0x005F9FFF))) //	:TA / PVR Core Reg.
 		{
 			//EMUERROR2("Read from area0_32 not implemented [TA / PVR Core Reg], addr=%x",addr);
-			verify(sz==4);
+			if (sz != 4)
+				// House of the Dead 2
+				return 0;
 			return (T)pvr_ReadReg(addr);
 		}
 	}
@@ -208,7 +218,7 @@ void  DYNACALL WriteMem_area0(u32 addr,T data)
 	const u32 base=(addr>>16);
 
 	//map 0x0000 to 0x001F
-	if ((base >=0x0000) && (base <=0x001F) /*&& (addr<=0x001FFFFF)*/)// :MPX System/Boot ROM
+	if ((base <=0x001F) /*&& (addr<=0x001FFFFF)*/)// :MPX System/Boot ROM
 	{
 		//EMUERROR4("Write to  [MPX	System/Boot ROM] is not possible, addr=%x,data=%x,size=%d",addr,data,sz);
 		WriteBios(addr,data,sz);
@@ -230,7 +240,7 @@ void  DYNACALL WriteMem_area0(u32 addr,T data)
 		else if ((addr>= 0x005F7000) && (addr<= 0x005F70FF)) // GD-ROM
 		{
 			//EMUERROR4("Write to area0_32 not implemented [GD-ROM], addr=%x,data=%x,size=%d",addr,data,sz);
-#if defined(BUILD_NAOMI	) || defined(BUILD_ATOMISWAVE)
+#if DC_PLATFORM == DC_PLATFORM_NAOMI || DC_PLATFORM == DC_PLATFORM_ATOMISWAVE
 			WriteMem_naomi(addr,data,sz);
 #else
 			WriteMem_gdrom(addr,data,sz);

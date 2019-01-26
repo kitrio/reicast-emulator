@@ -79,7 +79,7 @@ enum demo_protocols {
 	DEMO_PROTOCOL_COUNT
 };
 
-#define WEBUI_PATH GetPath("/webui")
+#define WEBUI_PATH get_writable_data_path("/webui")
 
 /*
  * We take a strict whitelist approach to stop ../ attacks
@@ -288,7 +288,11 @@ static int callback_http(struct libwebsocket_context *context,
 		}
 
 		/* if not, send a file the easy way */
-		strcpy(buf, resource_path);
+
+		// FIXME: Data loss if buffer is too small
+		strncpy(buf, resource_path, sizeof(buf));
+		buf[sizeof(buf) - 1] = '\0';
+
 		if (strcmp((const char*)in, "/")) {
 			if (*((const char *)in) != '/')
 				strcat(buf, "/");
@@ -508,7 +512,7 @@ callback_dumb_increment(struct libwebsocket_context *context,
 
 	case LWS_CALLBACK_SERVER_WRITEABLE:
 		n = sprintf((char *)p, "%d", pss->number++);
-		m = libwebsocket_write(wsi, p, n, LWS_WRITE_TEXT);
+		m = libwebsocket_write(wsi, (u8*)&p_sh4rcb->cntx, sizeof(p_sh4rcb->cntx), LWS_WRITE_BINARY);
 		if (m < n) {
 			lwsl_err("ERROR %d writing to di socket\n", n);
 			return -1;

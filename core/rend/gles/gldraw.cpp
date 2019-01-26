@@ -74,6 +74,8 @@ const static u32 SrcBlendGL[] =
 	GL_ONE_MINUS_DST_ALPHA
 };
 
+extern int screen_width;
+extern int screen_height;
 
 PipelineShader* CurrentShader;
 u32 gcflip;
@@ -106,6 +108,9 @@ static struct
 
 s32 SetTileClip(u32 val, bool set)
 {
+	if (!settings.rend.Clipping)
+		return 0;
+
 	/*
 	if (set)
 	{
@@ -121,9 +126,9 @@ s32 SetTileClip(u32 val, bool set)
 		clip_mode=0;    //always passes
 	}
 	else if (clipmode&1)
-		clip_mode=-1;   //render stuff inside the region
+		clip_mode=-1;   //render stuff outside the region
 	else
-		clip_mode=1;    //render stuff outside the region
+		clip_mode=1;    //render stuff inside the region
 
 	float csx=0,csy=0,cex=0,cey=0;
 
@@ -137,11 +142,20 @@ s32 SetTileClip(u32 val, bool set)
 	csy=csy*32;
 	cey=cey*32 +32;
 
-	if (csx==0 && csy==0 && cex==640 && cey==480)
+	if (csx <= 0 && csy <= 0 && cex >= 640 && cey >= 480)
 		return 0;
 	
-	if (set)
-		glUniform4f(CurrentShader->pp_ClipTest,-csx,-csy,-cex,-cey);		
+	if (set && clip_mode) {
+		csy = 480 - csy;
+		cey = 480 - cey;
+		float dc2s_scale_h = screen_height / 480.0f;
+		float ds2s_offs_x = (screen_width - dc2s_scale_h * 640) / 2;
+		csx = csx * dc2s_scale_h + ds2s_offs_x;
+		cex = cex * dc2s_scale_h + ds2s_offs_x;
+		csy = csy * dc2s_scale_h;
+		cey = cey * dc2s_scale_h;
+		glUniform4f(CurrentShader->pp_ClipTest, csx, cey, cex, csy);
+	}
 
 	return clip_mode;
 }
@@ -173,8 +187,8 @@ __forceinline
 	{
 		cache.program=CurrentShader->program;
 		glUseProgram(CurrentShader->program);
-		SetTileClip(gp->tileclip,true);
 	}
+	SetTileClip(gp->tileclip,true);
 
 	//This for some reason doesn't work properly
 	//So, shadow bit emulation is disabled.
@@ -713,7 +727,7 @@ void GenSorted()
 
 		if (idx!=pid /* && !PP_EQ(&pp_base[pid],&pp_base[idx]) */ )
 		{
-			SortTrigDrawParam stdp={pp_base + pid, i*3, 0};
+			SortTrigDrawParam stdp={pp_base + pid, (u16)(i*3), 0};
 			
 			if (idx!=-1)
 			{
@@ -856,6 +870,7 @@ void SetMVS_Mode(u32 mv_mode,ISP_Modvol ispc)
 
 		if (mv_mode==1)
 		{
+			// Inclusion volume
 			//res : old : final 
 			//0   : 0      : 00
 			//0   : 1      : 01
@@ -881,21 +896,22 @@ void SetMVS_Mode(u32 mv_mode,ISP_Modvol ispc)
 		}
 		else
 		{
+			// Exclusion volume
 			/*
-				this is bugged. a lot.
 				I've only seen a single game use it, so i guess it doesn't matter ? (Zombie revenge)
 				(actually, i think there was also another, racing game)
 			*/
 
+			// The initial value for exclusion volumes is 1 so we need to invert the result before and'ing.
 			//res : old : final 
 			//0   : 0   : 00
-			//0   : 1   : 00
+			//0   : 1   : 01
 			//1   : 0   : 00
-			//1   : 1   : 01
+			//1   : 1   : 00
 
-			//if (2>st) st=1; else st=0;	//can't be done with a single pass
-			glStencilFunc(GL_GREATER,1,3);
-			glStencilOp(GL_ZERO,GL_KEEP,GL_REPLACE);
+			//if (1 == st) st = 1; else st = 0;
+			glStencilFunc(GL_EQUAL, 1, 3);
+			glStencilOp(GL_ZERO,GL_KEEP,GL_KEEP);
 #ifndef NO_STENCIL_WORKAROUND
 			//Look @ comment above -- this looks like a driver bug
 			glStencilOp(GL_ZERO,GL_KEEP,GL_REPLACE);
@@ -904,8 +920,13 @@ void SetMVS_Mode(u32 mv_mode,ISP_Modvol ispc)
 	}
 }
 
+
 void SetupMainVBO()
 {
+#ifndef GLES
+	glBindVertexArray(gl.vbo.vao);
+#endif
+
 	glBindBuffer(GL_ARRAY_BUFFER, gl.vbo.geometry); glCheck();
 	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, gl.vbo.idxs); glCheck();
 
@@ -925,6 +946,10 @@ void SetupMainVBO()
 
 void SetupModvolVBO()
 {
+#ifndef GLES
+	glBindVertexArray(gl.vbo.vao);
+#endif
+
 	glBindBuffer(GL_ARRAY_BUFFER, gl.vbo.modvols); glCheck();
 
 	//setup vertex buffers attrib pointers
@@ -977,7 +1002,7 @@ void DrawModVols()
 		*/
 
 		glColorMask(GL_FALSE,GL_FALSE,GL_FALSE,GL_FALSE);
-		glDepthFunc(GL_GREATER);
+
 		if ( 0 /* || GetAsyncKeyState(VK_F6)*/ )
 		{
 			//simple single level stencil
@@ -1098,7 +1123,8 @@ void DrawStrips()
 	/*if (!GetAsyncKeyState(VK_F1))*/
 	DrawList<ListType_Opaque,false>(pvrrc.global_param_op);
 
-	//DrawModVols();
+	if (settings.rend.ModifierVolumes)
+		DrawModVols();
 
 	//Alpha tested
 	//setup alpha test state

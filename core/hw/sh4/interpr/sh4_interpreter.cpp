@@ -38,22 +38,40 @@ void Sh4_int_Run()
 
 	s32 l=SH4_TIMESLICE;
 
+#if !defined(TARGET_BOUNDED_EXECUTION)
 	do
+#else
+	for (int i=0; i<10000; i++)
+#endif
 	{
-		do
-		{
-			u32 op=ReadMem16(next_pc);
-			next_pc+=2;
+#if !defined(NO_MMU)
+		try {
+#endif
+			do
+			{
+				u32 addr = next_pc;
+				next_pc += 2;
+				u32 op = IReadMem16(addr);
 
-			OpPtr[op](op);
-			l-=CPU_RATIO;
-		} while(l>0);
-		l+=SH4_TIMESLICE;
-		UpdateSystem_INTC();
-
+				OpPtr[op](op);
+				l -= CPU_RATIO;
+			} while (l > 0);
+			l += SH4_TIMESLICE;
+			UpdateSystem_INTC();
+#if !defined(NO_MMU)
+		}
+		catch (SH4ThrownException ex) {
+			Do_Exception(ex.epc, ex.expEvn, ex.callVect);
+			l -= CPU_RATIO * 5;
+		}
+#endif
+#if !defined(TARGET_BOUNDED_EXECUTION)
 	} while(sh4_int_bCpuRun);
 
 	sh4_int_bCpuRun=false;
+#else
+	}
+#endif
 }
 
 void Sh4_int_Stop()
@@ -127,17 +145,40 @@ bool Sh4_int_IsCpuRunning()
 //TODO : Check for valid delayslot instruction
 void ExecuteDelayslot()
 {
-	u32 op=IReadMem16(next_pc);
-	next_pc+=2;
-	if (op!=0)
-		ExecuteOpcode(op);
+#if !defined(NO_MMU)
+	try {
+#endif
+		u32 addr = next_pc;
+		next_pc += 2;
+		u32 op = IReadMem16(addr);
+		if (op != 0)
+			ExecuteOpcode(op);
+#if !defined(NO_MMU)
+	}
+	catch (SH4ThrownException ex) {
+		ex.epc -= 2;
+		//printf("Delay slot exception\n");
+		throw ex;
+	}
+#endif
 }
 
 void ExecuteDelayslot_RTE()
 {
-	sr.SetFull(ssr);
+	u32 oldsr = sr.GetFull();
 
-	ExecuteDelayslot();
+#if !defined(NO_MMU)
+	try {
+#endif
+		sr.SetFull(ssr);
+
+		ExecuteDelayslot();
+#if !defined(NO_MMU)
+	}
+	catch (SH4ThrownException ex) {
+		msgboxf("RTE Exception", MBX_ICONERROR);
+	}
+#endif
 }
 
 //General update
@@ -152,6 +193,7 @@ int rtc_schid;
 //14336 Cycles
 
 const int AICA_TICK=145124;
+extern void aica_periodical(u32 cycl);
 
 int AicaUpdate(int tag, int c, int j)
 {
@@ -170,6 +212,8 @@ int AicaUpdate(int tag, int c, int j)
 
 	return AICA_TICK;
 }
+
+
 int DreamcastSecond(int tag, int c, int j)
 {
 	settings.dreamcast.RTC++;
@@ -178,12 +222,13 @@ int DreamcastSecond(int tag, int c, int j)
 	prof_periodical();
 #endif
 
-#if !defined(HOST_NO_REC)
+#if FEAT_SHREC != DYNAREC_NONE
 	bm_Periodical_1s();
 #endif
 
 	//printf("%d ticks\n",sh4_sched_intr);
-	sh4_sched_intr=0;	return SH4_MAIN_CLOCK;
+	sh4_sched_intr=0;
+	return SH4_MAIN_CLOCK;
 }
 
 int UpdateSystem_rec()
@@ -240,6 +285,7 @@ void Sh4_int_Init()
 
 	rtc_schid=sh4_sched_register(0,&DreamcastSecond);
 	sh4_sched_request(rtc_schid,SH4_MAIN_CLOCK);
+	memset(&p_sh4rcb->cntx, 0, sizeof(p_sh4rcb->cntx));
 }
 
 void Sh4_int_Term()
@@ -247,3 +293,17 @@ void Sh4_int_Term()
 	Sh4_int_Stop();
 	printf("Sh4 Term\n");
 }
+
+/*
+bool sh4_exept_raised;
+void sh4_int_RaiseExeption(u32 ExeptionCode, u32 VectorAddress)
+{
+	sh4_exept_raised = true;
+
+	sh4_ex_ExeptionCode = ExeptionCode;
+	sh4_ex_VectorAddress = VectorAddress;
+
+	//save reg context
+	SaveSh4Regs(&sh4_ex_SRC);
+}
+*/

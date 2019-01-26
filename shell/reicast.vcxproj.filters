@@ -97,9 +97,6 @@
     <ClCompile Include="..\core\deps\crypto\sha1.cpp">
       <Filter>deps\crypto</Filter>
     </ClCompile>
-    <ClCompile Include="..\core\deps\chdr\chdr.cpp">
-      <Filter>deps\chdr</Filter>
-    </ClCompile>
     <ClCompile Include="..\core\imgread\cdi.cpp">
       <Filter>imgread</Filter>
     </ClCompile>
@@ -132,17 +129,8 @@
     <ClCompile Include="..\core\emitter\x86_emitter.cpp">
       <Filter>emitter</Filter>
     </ClCompile>
-    <ClCompile Include="..\core\windows\win86_driver.cpp">
-      <Filter>win86</Filter>
-    </ClCompile>
-    <ClCompile Include="..\core\windows\win86_il.cpp">
-      <Filter>win86</Filter>
-    </ClCompile>
-    <ClCompile Include="..\core\windows\win86_ngen.cpp">
-      <Filter>win86</Filter>
-    </ClCompile>
     <ClCompile Include="..\core\windows\winmain.cpp">
-      <Filter>win86</Filter>
+      <Filter>windows</Filter>
     </ClCompile>
     <ClCompile Include="..\core\profiler\profiler.cpp">
       <Filter>profiler</Filter>
@@ -162,13 +150,7 @@
     <ClCompile Include="..\core\hw\sh4\sh4_mem.cpp">
       <Filter>hw\sh4</Filter>
     </ClCompile>
-    <ClCompile Include="..\core\oslib\alsa_audiostream.cpp">
-      <Filter>oslib</Filter>
-    </ClCompile>
     <ClCompile Include="..\core\oslib\audiostream.cpp">
-      <Filter>oslib</Filter>
-    </ClCompile>
-    <ClCompile Include="..\core\oslib\ds_audiostream.cpp">
       <Filter>oslib</Filter>
     </ClCompile>
     <ClCompile Include="..\core\hw\sh4\modules\bsc.cpp">
@@ -251,9 +233,6 @@
     </ClCompile>
     <ClCompile Include="..\core\linux\nixprof.cpp">
       <Filter>linux</Filter>
-    </ClCompile>
-    <ClCompile Include="..\core\rec-ARM\arm_dyna.cpp">
-      <Filter>rec-ARM</Filter>
     </ClCompile>
     <ClCompile Include="..\core\deps\chdpsr\cdipsr.cpp">
       <Filter>deps\chdpsr</Filter>
@@ -396,6 +375,111 @@
     <ClCompile Include="..\core\webui\server.cpp">
       <Filter>webui</Filter>
     </ClCompile>
+    <ClCompile Include="..\core\deps\coreio\coreio.cpp">
+      <Filter>deps\coreio</Filter>
+    </ClCompile>
+    <ClCompile Include="..\core\reios\reios.cpp">
+      <Filter>reios</Filter>
+    </ClCompile>
+    <ClCompile Include="..\core\reios\gdrom_hle.cpp">
+      <Filter>reios</Filter>
+    </ClCompile>
+    <ClCompile Include="..\core\reios\descrambl.cpp">
+      <Filter>reios</Filter>
+    </ClCompile>
+    <ClCompile Include="..\core\reios\reios_elf.cpp">
+      <Filter>reios</Filter>
+    </ClCompile>
+    <ClCompile Include="..\core\linux\context.cpp">
+      <Filter>linux</Filter>
+    </ClCompile>
+    <ClCompile Include="..\core\oslib\audiobackend_directsound.cpp">
+      <Filter>oslib</Filter>
+    </ClCompile>
+    <ClCompile Include="..\core\rec-ARM\rec_arm.cpp">
+      <Filter>rec-ARM</Filter>
+    </ClCompile>
+    <ClCompile Include="..\core\rec-x86\rec_x86_driver.cpp">
+      <Filter>rec-x86</Filter>
+    </ClCompile>
+    <ClCompile Include="..\core\rec-x86\rec_x86_il.cpp">
+      <Filter>rec-x86</Filter>
+    </ClCompile>
+    <ClCompile Include="..\core\rec-x86\rec_x86_asm.cpp">
+      <Filter>rec-x86</Filter>
+    </ClCompile>
+    <ClCompile Include="..\core\rec-x64\rec_x64.cpp">
+      <Filter>rec-x64</Filter>
+    </ClCompile>
+    <ClCompile Include="..\core\rec-cpp\rec_cpp.cpp">
+      <Filter>rec-cpp</Filter>
+    </ClCompile>
+    <ClCompile Include="..\core\rend\soft\softrend.cpp">
+      <Filter>rend\soft</Filter>
+    </ClCompile>
+    <ClCompile Include="..\core\hw\naomi\naomi.cpp">
+      <Filter>hw\naomi</Filter>
+    </ClCompile>
+    <ClCompile Include="..\core\hw\naomi\naomi_cart.cpp">
+      <Filter>hw\naomi</Filter>
+    </ClCompile>
+    <ClCompile Include="..\core\cfg\ini.cpp">
+      <Filter>cfg</Filter>
+    </ClCompile>
+    <ClCompile Include="..\core\deps\chdr\chd.c">
+      <Filter>deps\chdr</Filter>
+    </ClCompile>
+    <ClCompile Include="..\core\deps\chdr\cdrom.c">
+      <Filter>deps\chdr</Filter>
+    </ClCompile>
+    <ClCompile Include="..\core\deps\chdr\flac.c">
+      <Filter>deps\chdr</Filter>
+    </ClCompile>
+    <ClCompile Include="..\core\deps\chdr\huffman.c">
+      <Filter>deps\chdr</Filter>
+    </ClCompile>
+    <ClCompile Include="..\core\deps\chdr\bitstream.c">
+      <Filter>deps\chdr</Filter>
+    </ClCompile>
+    <ClCompile Include="..\core\deps\lzma\Alloc.c">
+      <Filter>deps\lzma</Filter>
+    </ClCompile>
+    <ClCompile Include="..\core\deps\lzma\Bra.c">
+      <Filter>deps\lzma</Filter>
+    </ClCompile>
+    <ClCompile Include="..\core\deps\lzma\Bra86.c">
+      <Filter>deps\lzma</Filter>
+    </ClCompile>
+    <ClCompile Include="..\core\deps\lzma\BraIA64.c">
+      <Filter>deps\lzma</Filter>
+    </ClCompile>
+    <ClCompile Include="..\core\deps\lzma\CpuArch.c">
+      <Filter>deps\lzma</Filter>
+    </ClCompile>
+    <ClCompile Include="..\core\deps\lzma\Delta.c">
+      <Filter>deps\lzma</Filter>
+    </ClCompile>
+    <ClCompile Include="..\core\deps\lzma\LzFind.c">
+      <Filter>deps\lzma</Filter>
+    </ClCompile>
+    <ClCompile Include="..\core\deps\lzma\Lzma86Dec.c">
+      <Filter>deps\lzma</Filter>
+    </ClCompile>
+    <ClCompile Include="..\core\deps\lzma\Lzma86Enc.c">
+      <Filter>deps\lzma</Filter>
+    </ClCompile>
+    <ClCompile Include="..\core\deps\lzma\LzmaDec.c">
+      <Filter>deps\lzma</Filter>
+    </ClCompile>
+    <ClCompile Include="..\core\deps\lzma\LzmaEnc.c">
+      <Filter>deps\lzma</Filter>
+    </ClCompile>
+    <ClCompile Include="..\core\deps\lzma\LzmaLib.c">
+      <Filter>deps\lzma</Filter>
+    </ClCompile>
+    <ClCompile Include="..\core\deps\lzma\Sort.c">
+      <Filter>deps\lzma</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <Filter Include="hw">
@@ -451,9 +535,6 @@
     </Filter>
     <Filter Include="emitter">
       <UniqueIdentifier>{e14356dc-6635-49f9-94d5-dc14ff1dec70}</UniqueIdentifier>
-    </Filter>
-    <Filter Include="win86">
-      <UniqueIdentifier>{5a7b63eb-8c03-46ac-b6e0-dfd3ade02f11}</UniqueIdentifier>
     </Filter>
     <Filter Include="profiler">
       <UniqueIdentifier>{f96b3c39-1255-4ee8-999e-5c6e8fef21e5}</UniqueIdentifier>
@@ -511,6 +592,33 @@
     </Filter>
     <Filter Include="webui">
       <UniqueIdentifier>{81193efc-656a-4154-9adf-146856d4c7d3}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="deps\coreio">
+      <UniqueIdentifier>{23cfa286-fe88-439d-89de-a6a5a23cacc9}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="reios">
+      <UniqueIdentifier>{f614dd66-5d30-4548-a209-f857f95fb505}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="rec-x86">
+      <UniqueIdentifier>{df854851-d3b5-4549-8248-acdfa954be44}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="windows">
+      <UniqueIdentifier>{5a7b63eb-8c03-46ac-b6e0-dfd3ade02f11}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="rec-x64">
+      <UniqueIdentifier>{f73263e9-dbe8-4a6f-8b73-335af8307551}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="rec-cpp">
+      <UniqueIdentifier>{63d1fcf2-64b4-4973-995f-cd471f51117c}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="rend\soft">
+      <UniqueIdentifier>{6c4b2d69-54c0-4660-9969-a98fd0339a15}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="hw\naomi">
+      <UniqueIdentifier>{1752487d-0739-47bf-8c6b-1d38e6f389f7}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="deps\lzma">
+      <UniqueIdentifier>{9198fe3c-8215-431d-9adf-d36e81eda98d}</UniqueIdentifier>
     </Filter>
   </ItemGroup>
   <ItemGroup>
@@ -694,9 +802,6 @@
     <ClInclude Include="..\core\emitter\x86_op_table.h">
       <Filter>emitter</Filter>
     </ClInclude>
-    <ClInclude Include="..\core\windows\win86_ngen.h">
-      <Filter>win86</Filter>
-    </ClInclude>
     <ClInclude Include="..\core\profiler\profiler.h">
       <Filter>profiler</Filter>
     </ClInclude>
@@ -715,16 +820,13 @@
     <ClInclude Include="..\core\hw\sh4\sh4_mem.h">
       <Filter>hw\sh4</Filter>
     </ClInclude>
-    <ClInclude Include="..\core\oslib\audiostream_rif.h">
+    <ClInclude Include="..\core\oslib\audiostream.h">
       <Filter>oslib</Filter>
     </ClInclude>
     <ClInclude Include="..\core\hw\sh4\modules\ccn.h">
       <Filter>hw\sh4\modules</Filter>
     </ClInclude>
     <ClInclude Include="..\core\hw\sh4\modules\dmac.h">
-      <Filter>hw\sh4\modules</Filter>
-    </ClInclude>
-    <ClInclude Include="..\core\hw\sh4\modules\intc.h">
       <Filter>hw\sh4\modules</Filter>
     </ClInclude>
     <ClInclude Include="..\core\hw\sh4\modules\mmu.h">
@@ -859,6 +961,58 @@
     <ClInclude Include="..\core\webui\server.h">
       <Filter>webui</Filter>
     </ClInclude>
+    <ClInclude Include="..\core\deps\coreio\coreio.h">
+      <Filter>deps\coreio</Filter>
+    </ClInclude>
+    <ClInclude Include="..\core\reios\reios.h">
+      <Filter>reios</Filter>
+    </ClInclude>
+    <ClInclude Include="..\core\reios\gdrom_hle.h">
+      <Filter>reios</Filter>
+    </ClInclude>
+    <ClInclude Include="..\core\reios\descrambl.h">
+      <Filter>reios</Filter>
+    </ClInclude>
+    <ClInclude Include="..\core\reios\reios_elf.h">
+      <Filter>reios</Filter>
+    </ClInclude>
+    <ClInclude Include="..\core\linux\context.h">
+      <Filter>linux</Filter>
+    </ClInclude>
+    <ClInclude Include="..\core\oslib\audiobackend_directsound.h">
+      <Filter>oslib</Filter>
+    </ClInclude>
+    <ClInclude Include="..\core\rec-x86\rec_x86_ngen.h">
+      <Filter>rec-x86</Filter>
+    </ClInclude>
+    <ClInclude Include="..\core\hw\naomi\naomi.h">
+      <Filter>hw\naomi</Filter>
+    </ClInclude>
+    <ClInclude Include="..\core\hw\naomi\naomi_regs.h">
+      <Filter>hw\naomi</Filter>
+    </ClInclude>
+    <ClInclude Include="..\core\hw\naomi\naomi_cart.h">
+      <Filter>hw\naomi</Filter>
+    </ClInclude>
+    <ClInclude Include="..\core\cfg\ini.h">
+      <Filter>cfg</Filter>
+    </ClInclude>
+    <ClInclude Include="..\core\hw\sh4\modules\mmu_impl.h">
+      <Filter>hw\sh4\modules</Filter>
+    </ClInclude>
+    <ClInclude Include="..\core\version.h" />
+    <ClInclude Include="..\core\deps\chdr\cdrom.h">
+      <Filter>deps\chdr</Filter>
+    </ClInclude>
+    <ClInclude Include="..\core\deps\chdr\flac.h">
+      <Filter>deps\chdr</Filter>
+    </ClInclude>
+    <ClInclude Include="..\core\deps\chdr\huffman.h">
+      <Filter>deps\chdr</Filter>
+    </ClInclude>
+    <ClInclude Include="..\core\deps\chdr\bitstream.h">
+      <Filter>deps\chdr</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <None Include="..\core\deps\zlib\Makefile">
@@ -866,6 +1020,9 @@
     </None>
     <None Include="..\core\rec-ARM\ngen_arm.S">
       <Filter>rec-ARM</Filter>
+    </None>
+    <None Include="..\core\rec-x86\rec_lin86_asm.S">
+      <Filter>rec-x86</Filter>
     </None>
   </ItemGroup>
 </Project>

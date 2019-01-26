@@ -1,6 +1,9 @@
 #pragma once
 #include "types.h"
 #include "x86_op_classes.h"
+#if HOST_OS == OS_DARWIN
+	#include <TargetConditionals.h>
+#endif
 
 using namespace std;
 //Oh god , x86 is a sooo badly designed opcode arch -_-
@@ -193,7 +196,7 @@ typedef void* dyna_finalizeFP(void* ptr,u32 oldsize,u32 newsize);
 //define it here cus we use it on label type ;)
 class x86_block;
 // a label
-struct __declspec(dllexport) x86_Label
+struct /*__declspec(dllexport)*/ x86_Label
 {
 	u32 target_opcode;
 	u8 patch_sz;
@@ -202,7 +205,7 @@ struct __declspec(dllexport) x86_Label
 	void* GetPtr();
 };
 //An empty type that we will use as ptr type.This is ptr-reference
-struct __declspec(dllexport)  x86_ptr
+struct /*__declspec(dllexport)*/  x86_ptr
 {
 	union
 	{
@@ -216,7 +219,7 @@ struct __declspec(dllexport)  x86_ptr
 	}
 };
 //This is ptr/imm (for call/jmp)
-struct __declspec(dllexport)  x86_ptr_imm
+struct /*__declspec(dllexport)*/  x86_ptr_imm
 {
 	union
 	{
@@ -228,6 +231,22 @@ struct __declspec(dllexport)  x86_ptr_imm
 	{
 		this->ptr=ptr;
 	}
+
+#if HOST_CPU != CPU_X64
+#if !defined(WIN32) && !defined(TARGET_OS_MAC)
+	template<typename Rv, typename ...Args>
+	x86_ptr_imm(Rv(* ptr)(Args...))
+	{
+		this->ptr= reinterpret_cast<void*>(ptr);
+	}
+#endif
+
+    template<typename Rv, typename ...Args>
+    x86_ptr_imm(Rv(DYNACALL * ptr)(Args...))
+    {
+        this->ptr= reinterpret_cast<void*>(ptr);
+    }
+#endif
 };
 
 enum x86_mrm_mod
@@ -255,11 +274,11 @@ struct x86_mrm_t
 	u32 disp;
 };
 
-__declspec(dllexport) x86_mrm_t x86_mrm(x86_reg base);
-__declspec(dllexport) x86_mrm_t x86_mrm(x86_reg base,x86_ptr disp);
-__declspec(dllexport) x86_mrm_t x86_mrm(x86_reg base,x86_reg index);
-__declspec(dllexport) x86_mrm_t x86_mrm(x86_reg index,x86_sib_scale scale,x86_ptr disp);
-__declspec(dllexport) x86_mrm_t x86_mrm(x86_reg base,x86_reg index,x86_sib_scale scale,x86_ptr disp);
+/*__declspec(dllexport)*/ x86_mrm_t x86_mrm(x86_reg base);
+/*__declspec(dllexport)*/ x86_mrm_t x86_mrm(x86_reg base,x86_ptr disp);
+/*__declspec(dllexport)*/ x86_mrm_t x86_mrm(x86_reg base,x86_reg index);
+/*__declspec(dllexport)*/ x86_mrm_t x86_mrm(x86_reg index,x86_sib_scale scale,x86_ptr disp);
+/*__declspec(dllexport)*/ x86_mrm_t x86_mrm(x86_reg base,x86_reg index,x86_sib_scale scale,x86_ptr disp);
 
 
 struct code_patch
@@ -273,7 +292,7 @@ struct code_patch
 	u32 offset;			//offset in opcode stream :)
 };
 
-struct __declspec(dllexport) x86_block_externs
+struct /*__declspec(dllexport)*/ x86_block_externs
 {
 	void Apply(void* code_base);
 	bool Modify(u32 offs,u8* dst);
@@ -282,7 +301,7 @@ struct __declspec(dllexport) x86_block_externs
 };
 
 //A block of x86 code :p
-class __declspec(dllexport) x86_block
+class /*__declspec(dllexport)*/ x86_block
 {
 private:
 	void* _labels;
@@ -303,9 +322,9 @@ public:
 	~x86_block();
 	void x86_buffer_ensure(u32 size);
 
-	void  x86_block::write8(u32 value);
-	void  x86_block::write16(u32 value);
-	void  x86_block::write32(u32 value);
+	void  write8(u32 value);
+	void  write16(u32 value);
+	void  write32(u32 value);
 
 	//init things
 	void Init(dyna_reallocFP* ral,dyna_finalizeFP* alf);
@@ -332,45 +351,45 @@ public:
 	//opcode Emitters
 
 	//no param
-	void x86_block::Emit(x86_opcode_class op);
+	void Emit(x86_opcode_class op);
 	//1 param
 	//reg
-	void x86_block::Emit(x86_opcode_class op,x86_reg reg);
+	void Emit(x86_opcode_class op,x86_reg reg);
 	//smrm
-	void x86_block::Emit(x86_opcode_class op,x86_ptr mem);
+	void Emit(x86_opcode_class op,x86_ptr mem);
 	//mrm
-	void x86_block::Emit(x86_opcode_class op,x86_mrm_t mrm);
+	void Emit(x86_opcode_class op,x86_mrm_t mrm);
 	//imm
-	void x86_block::Emit(x86_opcode_class op,u32 imm);
+	void Emit(x86_opcode_class op,u32 imm);
 	//ptr_imm
-	void x86_block::Emit(x86_opcode_class op,x86_ptr_imm disp);
+	void Emit(x86_opcode_class op,x86_ptr_imm disp);
 	//lbl
-	void x86_block::Emit(x86_opcode_class op,x86_Label* lbl);
+	void Emit(x86_opcode_class op,x86_Label* lbl);
 
 	//2 param
 	//reg,reg, reg1 is written
-	void x86_block::Emit(x86_opcode_class op,x86_reg reg1,x86_reg reg2);
+	void Emit(x86_opcode_class op,x86_reg reg1,x86_reg reg2);
 	//reg,smrm, reg is written
-	void x86_block::Emit(x86_opcode_class op,x86_reg reg,x86_ptr mem);
+	void Emit(x86_opcode_class op,x86_reg reg,x86_ptr mem);
 	//reg,mrm, reg is written
-	void x86_block::Emit(x86_opcode_class op,x86_reg reg1,x86_mrm_t mrm);
+	void Emit(x86_opcode_class op,x86_reg reg1,x86_mrm_t mrm);
 	//reg,imm, reg is written
-	void x86_block::Emit(x86_opcode_class op,x86_reg reg,u32 imm);
+	void Emit(x86_opcode_class op,x86_reg reg,u32 imm);
 	//smrm,reg, mem is written
-	void x86_block::Emit(x86_opcode_class op,x86_ptr mem,x86_reg reg);
+	void Emit(x86_opcode_class op,x86_ptr mem,x86_reg reg);
 	//smrm,imm, mem is written
-	void x86_block::Emit(x86_opcode_class op,x86_ptr mem,u32 imm);
+	void Emit(x86_opcode_class op,x86_ptr mem,u32 imm);
 
 	//mrm,reg, mrm is written
-	void x86_block::Emit(x86_opcode_class op,x86_mrm_t mrm,x86_reg reg);
+	void Emit(x86_opcode_class op,x86_mrm_t mrm,x86_reg reg);
 	//mrm,imm, mrm is written
-	void x86_block::Emit(x86_opcode_class op,x86_mrm_t mrm,u32 imm);
+	void Emit(x86_opcode_class op,x86_mrm_t mrm,u32 imm);
 
 	//3 param
 	//reg,reg,imm, reg1 is written
-	void x86_block::Emit(x86_opcode_class op,x86_reg reg1,x86_reg reg2,u32 imm);
+	void Emit(x86_opcode_class op,x86_reg reg1,x86_reg reg2,u32 imm);
 	//reg,mrm,imm, reg1 is written
-	void x86_block::Emit(x86_opcode_class op,x86_reg reg,x86_ptr mem,u32 imm);
+	void Emit(x86_opcode_class op,x86_reg reg,x86_ptr mem,u32 imm);
 	//reg,mrm,imm, reg1 is written
-	void x86_block::Emit(x86_opcode_class op,x86_reg reg,x86_mrm_t mrm,u32 imm);
+	void Emit(x86_opcode_class op,x86_reg reg,x86_mrm_t mrm,u32 imm);
 };

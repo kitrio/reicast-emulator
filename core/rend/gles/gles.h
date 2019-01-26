@@ -1,9 +1,19 @@
 #pragma once
 #include "rend/rend.h"
 
+
+#ifdef GLES
+#if defined(TARGET_IPHONE) //apple-specific ogles2 headers
+//#include <APPLE/egl.h>
+#include <OpenGLES/ES2/gl.h>
+#include <OpenGLES/ES2/glext.h>
+#else
+#if !defined(TARGET_NACL32)
 #include <EGL/egl.h>
+#endif
 #include <GLES2/gl2.h>
 #include <GLES2/gl2ext.h>
+#endif
 
 #ifndef GL_NV_draw_path
 //IMGTEC GLES emulation
@@ -11,9 +21,18 @@
 #pragma comment(lib,"libGLESv2.lib")
 #else /* NV gles emulation*/
 #pragma comment(lib,"libGLES20.lib")
-
 #endif
-#define glCheck() false
+
+#else
+#if HOST_OS == OS_DARWIN
+    #include <OpenGL/gl3.h>
+#else
+	#include <GL3/gl3w.h>
+#endif
+#endif
+
+
+#define glCheck() do { if (unlikely(settings.validate.OpenGlChecks)) { verify(glGetError()==GL_NO_ERROR); } } while(0)
 #define eglCheck() false
 
 #define VERTEX_POS_ARRAY 0
@@ -34,7 +53,7 @@ struct PipelineShader
 
 	GLuint scale,depth_scale;
 	GLuint pp_ClipTest,cp_AlphaTestValue;
-	GLuint sp_FOG_COL_RAM,sp_FOG_COL_VERT,sp_FOG_DENSITY,sp_LOG_FOG_COEFS;
+	GLuint sp_FOG_COL_RAM,sp_FOG_COL_VERT,sp_FOG_DENSITY;
 
 	//
 	u32 cp_AlphaTest; s32 pp_ClipTestMode;
@@ -44,6 +63,7 @@ struct PipelineShader
 
 struct gl_ctx
 {
+#if defined(GLES) && HOST_OS != OS_DARWIN && !defined(TARGET_NACL32)
 	struct
 	{
 		EGLNativeWindowType native_wind;
@@ -52,6 +72,7 @@ struct gl_ctx
 		EGLSurface surface;
 		EGLContext context;
 	} setup;
+#endif
 
 	struct
 	{
@@ -71,17 +92,33 @@ struct gl_ctx
 	struct
 	{
 		GLuint geometry,modvols,idxs,idxs2;
+#ifndef GLES
+		GLuint vao;
+#endif
 	} vbo;
 
-
+	const char *gl_version;
+	const char *glsl_version_header;
+	int gl_major;
+	bool is_gles;
+	GLuint fog_image_format;
 	//GLuint matrix;
 };
 
 extern gl_ctx gl;
 
-GLuint GetTexture(TSP tsp,TCW tcw);
+GLuint gl_GetTexture(TSP tsp,TCW tcw);
+struct text_info {
+	u16* pdata;
+	u32 width;
+	u32 height;
+	u32 textype; // 0 565, 1 1555, 2 4444
+};
+
+text_info raw_GetTexture(TSP tsp, TCW tcw);
 void CollectCleanup();
 void DoCleanup();
+void SortPParams();
 
 void BindRTT(u32 addy, u32 fbw, u32 fbh, u32 channels, u32 fmt);
 int GetProgramID(u32 cp_AlphaTest, u32 pp_ClipTestMode,

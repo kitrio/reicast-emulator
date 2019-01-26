@@ -163,6 +163,7 @@ public:
 //Windoze code
 //Threads
 
+#if !defined(HOST_NO_THREADS)
 typedef  void* ThreadEntryFP(void* param);
 
 typedef void* THREADHANDLE;
@@ -179,7 +180,7 @@ public :
 	void Start();
 	void WaitToEnd();
 };
-
+#endif
 //Wait Events
 typedef void* EVENTHANDLE;
 class cResetEvent
@@ -220,7 +221,7 @@ public :
 #if HOST_OS==OS_WINDOWS
 		InitializeCriticalSection(&cs);
 #else
-		mutx=PTHREAD_MUTEX_INITIALIZER;
+		pthread_mutex_init ( &mutx, NULL);
 #endif
 	}
 	~cMutex()
@@ -250,9 +251,17 @@ public :
 };
 
 //Set the path !
-void SetHomeDir(const string& home);
+void set_user_config_dir(const string& dir);
+void set_user_data_dir(const string& dir);
+void add_system_config_dir(const string& dir);
+void add_system_data_dir(const string& dir);
+
 //subpath format: /data/fsca-table.bit
-string GetPath(const string& subpath);
+string get_writable_config_path(const string& filename);
+string get_writable_data_path(const string& filename);
+string get_readonly_config_path(const string& filename);
+string get_readonly_data_path(const string& filename);
+bool file_exists(const string& filename);
 
 
 class VArray2

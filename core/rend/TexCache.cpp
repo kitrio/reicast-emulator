@@ -1,5 +1,6 @@
 #include "TexCache.h"
 #include "hw/pvr/pvr_regs.h"
+#include "hw/mem/_vmem.h"
 
 u8* vq_codebook;
 u32 palette_index;
@@ -166,8 +167,6 @@ vram_block* libCore_vramlock_Lock(u32 start_offset64,u32 end_offset64,void* user
 {
 	vram_block* block=(vram_block* )malloc(sizeof(vram_block));
  
-	end_offset64=start_offset64+4095;
-
 	if (end_offset64>(VRAM_SIZE-1))
 	{
 		msgboxf("vramlock_Lock_64: end_offset64>(VRAM_SIZE-1) \n Tried to lock area out of vram , possibly bug on the pvr plugin",MBX_OK);
@@ -192,7 +191,12 @@ vram_block* libCore_vramlock_Lock(u32 start_offset64,u32 end_offset64,void* user
 		vramlist_lock.Lock();
 	
 		vram.LockRegion(block->start,block->len);
-		vram.LockRegion(block->start + VRAM_SIZE,block->len);
+
+		//TODO: Fix this for 32M wrap as well
+		if (_nvmem_enabled() && VRAM_SIZE == 0x800000) {
+			vram.LockRegion(block->start + VRAM_SIZE, block->len);
+		}
+		
 		vramlock_list_add(block);
 		
 		vramlist_lock.Unlock();
@@ -232,7 +236,11 @@ bool VramLockedWrite(u8* address)
 			list->clear();
 
 			vram.UnLockRegion((u32)offset&(~(PAGE_SIZE-1)),PAGE_SIZE);
-			vram.UnLockRegion((u32)offset&(~(PAGE_SIZE-1)) + VRAM_SIZE,PAGE_SIZE);
+
+			//TODO: Fix this for 32M wrap as well
+			if (_nvmem_enabled() && VRAM_SIZE == 0x800000) {
+				vram.UnLockRegion((u32)offset&(~(PAGE_SIZE-1)) + VRAM_SIZE,PAGE_SIZE);
+			}
 			
 			vramlist_lock.Unlock();
 		}

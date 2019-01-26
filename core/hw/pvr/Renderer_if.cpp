@@ -1,6 +1,19 @@
 #include "Renderer_if.h"
 #include "ta.h"
 #include "hw/pvr/pvr_mem.h"
+#include "rend/TexCache.h"
+
+#include "deps/zlib/zlib.h"
+
+#include "deps/crypto/md5.h"
+
+#if FEAT_HAS_NIXPROF
+#include "profiler/profiler.h"
+#endif
+
+#define FRAME_MD5 0x1
+FILE* fLogFrames;
+FILE* fCheckFrames;
 
 /*
 
@@ -62,34 +75,156 @@
 u32 VertexCount=0;
 u32 FrameCount=1;
 
-Renderer* rend;
+Renderer* renderer;
+bool renderer_enabled = true;	// Signals the renderer thread to exit
+
+#if !defined(TARGET_NO_THREADS)
 cResetEvent rs(false,true);
 cResetEvent re(false,true);
+#endif
 
 int max_idx,max_mvo,max_op,max_pt,max_tr,max_vtx,max_modt, ovrn;
 
 TA_context* _pvrrc;
 void SetREP(TA_context* cntx);
 
+void dump_frame(const char* file, TA_context* ctx, u8* vram, u8* vram_ref = NULL) {
+	FILE* fw = fopen(file, "wb");
 
+	//append to it
+	fseek(fw, 0, SEEK_END);
+
+	u32 bytes = ctx->tad.End() - ctx->tad.thd_root;
+
+	fwrite("TAFRAME3", 1, 8, fw);
+
+	fwrite(&ctx->rend.isRTT, 1, sizeof(ctx->rend.isRTT), fw);
+	fwrite(&ctx->rend.isAutoSort, 1, sizeof(ctx->rend.isAutoSort), fw);
+	fwrite(&ctx->rend.fb_X_CLIP.full, 1, sizeof(ctx->rend.fb_X_CLIP.full), fw);
+	fwrite(&ctx->rend.fb_Y_CLIP.full, 1, sizeof(ctx->rend.fb_Y_CLIP.full), fw);
+
+	fwrite(ctx->rend.global_param_op.head(), 1, sizeof(PolyParam), fw);
+	fwrite(ctx->rend.verts.head(), 1, 4 * sizeof(Vertex), fw);
+
+	u32 t = VRAM_SIZE;
+	fwrite(&t, 1, sizeof(t), fw);
+	
+	u8* compressed;
+	uLongf compressed_size;
+	u8* src_vram = vram;
+
+	if (vram_ref) {
+		src_vram = (u8*)malloc(VRAM_SIZE);
+
+		for (int i = 0; i < VRAM_SIZE; i++) {
+			src_vram[i] = vram[i] ^ vram_ref[i];
+		}
+	}
+
+	compressed = (u8*)malloc(VRAM_SIZE+16);
+	compressed_size = VRAM_SIZE;
+	verify(compress(compressed, &compressed_size, src_vram, VRAM_SIZE) == Z_OK);
+	fwrite(&compressed_size, 1, sizeof(compressed_size), fw);
+	fwrite(compressed, 1, compressed_size, fw);
+	free(compressed);
+
+	if (src_vram != vram)
+		free(src_vram);
+
+	fwrite(&bytes, 1, sizeof(t), fw);
+	compressed = (u8*)malloc(bytes + 16);
+	compressed_size = VRAM_SIZE;
+	verify(compress(compressed, &compressed_size, ctx->tad.thd_root, bytes) == Z_OK);
+	fwrite(&compressed_size, 1, sizeof(compressed_size), fw);
+	fwrite(compressed, 1, compressed_size, fw);
+	free(compressed);
+
+	fclose(fw);
+}
+
+TA_context* read_frame(const char* file, u8* vram_ref) {
+	
+	FILE* fw = fopen(file, "rb");
+	char id0[8] = { 0 };
+	u32 t = 0;
+	u32 t2 = 0;
+
+	fread(id0, 1, 8, fw);
+
+	if (memcmp(id0, "TAFRAME3", 8) != 0) {
+		fclose(fw);
+		return 0;
+	}
+
+	TA_context* ctx = tactx_Alloc();
+
+	ctx->Reset();
+
+	ctx->tad.Clear();
+
+	fread(&ctx->rend.isRTT, 1, sizeof(ctx->rend.isRTT), fw);
+	fread(&ctx->rend.isAutoSort, 1, sizeof(ctx->rend.isAutoSort), fw);
+	fread(&ctx->rend.fb_X_CLIP.full, 1, sizeof(ctx->rend.fb_X_CLIP.full), fw);
+	fread(&ctx->rend.fb_Y_CLIP.full, 1, sizeof(ctx->rend.fb_Y_CLIP.full), fw);
+
+	fread(ctx->rend.global_param_op.head(), 1, sizeof(PolyParam), fw);
+	fread(ctx->rend.verts.head(), 1, 4 * sizeof(Vertex), fw);
+
+	fread(&t, 1, sizeof(t), fw);
+	verify(t == VRAM_SIZE);
+
+	vram.UnLockRegion(0, VRAM_SIZE);
+
+	fread(&t2, 1, sizeof(t), fw);
+
+	u8* gz_stream = (u8*)malloc(t2);
+	fread(gz_stream, 1, t2, fw);
+	uncompress(vram.data, (uLongf*)&t, gz_stream, t2);
+	free(gz_stream);
+
+
+	fread(&t, 1, sizeof(t), fw);
+	fread(&t2, 1, sizeof(t), fw);
+	gz_stream = (u8*)malloc(t2);
+	fread(gz_stream, 1, t2, fw);
+	uncompress(ctx->tad.thd_data, (uLongf*)&t, gz_stream, t2);
+	free(gz_stream);
+
+	ctx->tad.thd_data += t;
+	fclose(fw);
+    
+    return ctx;
+}
+
+bool rend_frame(TA_context* ctx, bool draw_osd) {
+	bool proc = renderer->Process(ctx);
+#if !defined(TARGET_NO_THREADS)
+	re.Set();
+#endif
+
+	bool do_swp = proc && renderer->Render();
+
+	if (do_swp && draw_osd)
+		renderer->DrawOSD();
+
+	return do_swp;
+}
 
 bool rend_single_frame()
 {
 	//wait render start only if no frame pending
 	do
 	{
+#if !defined(TARGET_NO_THREADS)
 		rs.Wait();
+#endif
+		if (!renderer_enabled)
+			return false;
+
 		_pvrrc = DequeueRender();
 	}
 	while (!_pvrrc);
-
-	bool proc = rend->Process(_pvrrc);
-	re.Set();
-
-	bool do_swp = proc && rend->Render();
-		
-	if (do_swp)
-		rend->DrawOSD();
+	bool do_swp = rend_frame(_pvrrc, true);
 
 	//clear up & free data ..
 	FinishRender(_pvrrc);
@@ -100,6 +235,10 @@ bool rend_single_frame()
 
 void* rend_thread(void* p)
 {
+#if FEAT_HAS_NIXPROF
+	install_prof_handler(1);
+#endif
+
 	#if SET_AFNT
 	cpu_set_t mask;
 
@@ -128,22 +267,31 @@ void* rend_thread(void* p)
 
 
 
-	if (!rend->Init())
+	if (!renderer->Init())
 		die("rend->init() failed\n");
 
-	rend->Resize(640,480);
+	//we don't know if this is true, so let's not speculate here
+	//renderer->Resize(640, 480);
 
-	for(;;)
+	while (renderer_enabled)
 	{
 		if (rend_single_frame())
-			rend->Present();	
+			renderer->Present();
 	}
+
+	return NULL;
 }
 
+#if !defined(TARGET_NO_THREADS)
 cThread rthd(rend_thread,0);
-
+#endif
 
 bool pend_rend = false;
+
+void rend_resize(int width, int height) {
+	renderer->Resize(width, height);
+}
+
 
 void rend_start_render()
 {
@@ -155,6 +303,47 @@ void rend_start_render()
 
 	if (ctx)
 	{
+		if (fLogFrames || fCheckFrames) {
+			MD5Context md5;
+			u8 digest[16];
+
+			MD5Init(&md5);
+			MD5Update(&md5, ctx->tad.thd_root, ctx->tad.End() - ctx->tad.thd_root);
+			MD5Final(digest, &md5);
+
+			if (fLogFrames) {
+				fputc(FRAME_MD5, fLogFrames);
+				fwrite(digest, 1, 16, fLogFrames);
+				fflush(fLogFrames);
+			}
+
+			if (fCheckFrames) {
+				u8 digest2[16];
+				int ch = fgetc(fCheckFrames);
+
+				if (ch == EOF) {
+					printf("Testing: TA Hash log matches, exiting\n");
+					exit(1);
+				}
+				
+				verify(ch == FRAME_MD5);
+
+				fread(digest2, 1, 16, fCheckFrames);
+
+				verify(memcmp(digest, digest2, 16) == 0);
+
+				
+			}
+
+			/*
+			u8* dig = digest;
+			printf("FRAME: %02X-%02X-%02X-%02X-%02X-%02X-%02X-%02X-%02X-%02X-%02X-%02X-%02X-%02X-%02X-%02X\n",
+				digest[0], digest[1], digest[2], digest[3], digest[4], digest[5], digest[6], digest[7],
+				digest[8], digest[9], digest[10], digest[11], digest[12], digest[13], digest[14], digest[15]
+				);
+			*/
+		}
+
 		if (!ctx->rend.Overrun)
 		{
 			//printf("REP: %.2f ms\n",render_end_pending_cycles/200000.0);
@@ -178,8 +367,14 @@ void rend_start_render()
 #if HOST_OS==OS_WINDOWS && 0
 			printf("max: idx: %d, vtx: %d, op: %d, pt: %d, tr: %d, mvo: %d, modt: %d, ov: %d\n", max_idx, max_vtx, max_op, max_pt, max_tr, max_mvo, max_modt, ovrn);
 #endif
-			if (QueueRender(ctx))  {
+			if (QueueRender(ctx))
+			{
+				palette_update();
+#if !defined(TARGET_NO_THREADS)
 				rs.Set();
+#else
+				rend_single_frame();
+#endif
 				pend_rend = true;
 			}
 		}
@@ -196,13 +391,20 @@ void rend_start_render()
 void rend_end_render()
 {
 #if 1 //also disabled the printf, it takes quite some time ...
-	#if HOST_OS!=OS_WINDOWS && !defined(_ANDROID)
-		if (!re.state) printf("Render > Extended time slice ...\n");
+	#if HOST_OS!=OS_WINDOWS && !(defined(_ANDROID) || defined(TARGET_PANDORA))
+		//too much console spam.
+		//TODO: how about a counter?
+		//if (!re.state) printf("Render > Extended time slice ...\n");
 	#endif
 #endif
 
-	if (pend_rend)
+	if (pend_rend) {
+#if !defined(TARGET_NO_THREADS)
 		re.Wait();
+#else
+		renderer->Present();
+#endif
+	}
 }
 
 /*
@@ -218,21 +420,47 @@ void rend_end_wait()
 
 bool rend_init()
 {
+	if ((fLogFrames = fopen(settings.pvr.HashLogFile.c_str(), "wb"))) {
+		printf("Saving frame hashes to: '%s'\n", settings.pvr.HashLogFile.c_str());
+	}
 
-#if NO_REND
-	rend = rend_norend();
+	if ((fCheckFrames = fopen(settings.pvr.HashCheckFile.c_str(), "rb"))) {
+		printf("Comparing frame hashes against: '%s'\n", settings.pvr.HashCheckFile.c_str());
+	}
+
+#ifdef NO_REND
+	renderer	 = rend_norend();
 #else
 
+
+	switch (settings.pvr.rend) {
+		default:
+		case 0:
+			renderer = rend_GLES2();
+			break;
 #if HOST_OS == OS_WINDOWS
-	rend = settings.pvr.rend == 0 ? rend_GLES2() : rend_D3D11() ;
-#else
-	rend = rend_GLES2();
+		case 1:
+			renderer = rend_D3D11();
+			break;
 #endif
+
+#if FEAT_HAS_SOFTREND
+		case 2:
+			renderer = rend_softrend();
+			break;
+#endif
+	}
 
 #endif
 
-#if !defined(_ANDROID)
-	rthd.Start();
+#if !defined(_ANDROID) && HOST_OS != OS_DARWIN
+  #if !defined(TARGET_NO_THREADS)
+    rthd.Start();
+  #else
+    if (!renderer->Init()) die("rend->init() failed\n");
+
+    renderer->Resize(640, 480);
+  #endif
 #endif
 
 #if SET_AFNT
@@ -268,6 +496,20 @@ bool rend_init()
 
 void rend_term()
 {
+	renderer_enabled = false;
+#if !defined(TARGET_NO_THREADS)
+	rs.Set();
+#endif
+
+	if (fCheckFrames)
+		fclose(fCheckFrames);
+
+	if (fLogFrames)
+		fclose(fLogFrames);
+
+#if !defined(TARGET_NO_THREADS)
+	rthd.WaitToEnd();
+#endif
 }
 
 void rend_vblank()

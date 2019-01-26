@@ -2,6 +2,8 @@
 	Some WIP optimisation stuff and maby helper functions for shil
 */
 
+#include <sstream>
+
 #include "types.h"
 #include "shil.h"
 #include "decoder.h"
@@ -695,7 +697,7 @@ void dejcond(RuntimeBlockInfo* blk)
 
 		if (found)
 		{
-			if (op->rd.is_reg() && op->rd._reg==reg_sr_T ||  op->op==shop_ifb)
+			if ((op->rd.is_reg() && op->rd._reg==reg_sr_T) ||  op->op==shop_ifb)
 			{
 				found=false;
 			}
@@ -838,9 +840,9 @@ void srt_waw(RuntimeBlockInfo* blk)
 
 		if (found)
 		{
-			if (op->rs1.is_reg() && op->rs1._reg==reg_sr_T
-				|| op->rs2.is_reg() && op->rs2._reg==reg_sr_T
-				|| op->rs3.is_reg() && op->rs3._reg==reg_sr_T
+			if ((op->rs1.is_reg() && op->rs1._reg==reg_sr_T)
+				|| (op->rs2.is_reg() && op->rs2._reg==reg_sr_T)
+				|| (op->rs3.is_reg() && op->rs3._reg==reg_sr_T)
 				|| op->op==shop_ifb)
 			{
 				found=false;
@@ -1015,12 +1017,10 @@ bool UpdateSR();
 //#define SHIL_MODE 2
 //#include "shil_canonical.h"
 
-#ifndef HOST_NO_REC
+#if FEAT_SHREC != DYNAREC_NONE
 #define SHIL_MODE 3
 #include "shil_canonical.h"
 #endif
-
-#include <sstream>
 
 string name_reg(u32 reg)
 {

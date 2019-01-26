@@ -20,7 +20,12 @@ Compression
 	look into it, but afaik PVRC is not realtime doable
 */
 
+#if FEAT_HAS_SOFTREND
+	#include <xmmintrin.h>
+#endif
+
 u16 temp_tex_buffer[1024*1024];
+extern u32 decoded_colors[3][65536];
 
 typedef void TexConvFP(PixelBuffer* pb,u8* p_in,u32 Width,u32 Height);
 
@@ -69,9 +74,14 @@ struct TextureCacheData
 	TCW tcw;
 
 	GLuint texID;   //gl texture
+	u16* pData;
+	int tex_type;
+
+	u32 Lookups;
 
 	//decoded texture info
-	u32 sa;         //data start address in vram
+	u32 sa;         //pixel data start address in vram (might be offset for mipmaps/etc)
+	u32 sa_tex;		//texture data start address in vram 
 	u32 w,h;        //width & height of the texture
 	u32 size;       //size, in bytes, in vram
 
@@ -81,7 +91,6 @@ struct TextureCacheData
 	u32 dirty;
 	vram_block* lock_block;
 
-	u32 Lookups;
 	u32 Updates;
 
 	//used for palette updates
@@ -120,10 +129,18 @@ struct TextureCacheData
 	}
 
 	//Create GL texture from tsp/tcw
-	void Create()
+	void Create(bool isGL)
 	{
 		//ask GL for texture ID
-		glGenTextures(1,&texID);
+		if (isGL) {
+			glGenTextures(1, &texID);
+		}
+		else {
+			texID = 0;
+		}
+		
+		pData = 0;
+		tex_type = 0;
 
 		//Reset state info ..
 		Lookups=0;
@@ -134,32 +151,37 @@ struct TextureCacheData
 		//decode info from tsp/tcw into the texture struct
 		tex=&format[tcw.PixelFmt==7?0:tcw.PixelFmt];		//texture format table entry
 
-		sa=(tcw.TexAddr<<3) & VRAM_MASK; //data start address
+		sa_tex = (tcw.TexAddr<<3) & VRAM_MASK;	//texture start address
+		sa = sa_tex;							//data texture start address (modified for MIPs, as needed)
 		w=8<<tsp.TexU;                   //tex width
 		h=8<<tsp.TexV;                   //tex height
 
-		//bind texture to set modes
-		glBindTexture(GL_TEXTURE_2D,texID);
+		if (texID) {
+			//bind texture to set modes
+			glBindTexture(GL_TEXTURE_2D, texID);
 
-		//set texture repeat mode
-		SetRepeatMode(GL_TEXTURE_WRAP_S,tsp.ClampU,tsp.FlipU); // glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, (tsp.ClampU ? GL_CLAMP_TO_EDGE : (tsp.FlipU ? GL_MIRRORED_REPEAT : GL_REPEAT))) ;
-		SetRepeatMode(GL_TEXTURE_WRAP_T,tsp.ClampV,tsp.FlipV); // glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, (tsp.ClampV ? GL_CLAMP_TO_EDGE : (tsp.FlipV ? GL_MIRRORED_REPEAT : GL_REPEAT))) ;
+			//set texture repeat mode
+			SetRepeatMode(GL_TEXTURE_WRAP_S, tsp.ClampU, tsp.FlipU); // glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, (tsp.ClampU ? GL_CLAMP_TO_EDGE : (tsp.FlipU ? GL_MIRRORED_REPEAT : GL_REPEAT))) ;
+			SetRepeatMode(GL_TEXTURE_WRAP_T, tsp.ClampV, tsp.FlipV); // glTexParameteri (GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, (tsp.ClampV ? GL_CLAMP_TO_EDGE : (tsp.FlipV ? GL_MIRRORED_REPEAT : GL_REPEAT))) ;
 
-		glHint(GL_GENERATE_MIPMAP_HINT, GL_NICEST);
+#ifdef GLES
+			glHint(GL_GENERATE_MIPMAP_HINT, GL_NICEST);
+#endif
 
-		//set texture filter mode
-		if ( tsp.FilterMode == 0 )
-		{
-			//disable filtering, mipmaps
-			glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MIN_FILTER,GL_NEAREST);
-			glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MAG_FILTER,GL_NEAREST);
-		}
-		else
-		{
-			//bilinear filtering
-			//PowerVR supports also trilinear via two passes, but we ignore that for now
-			glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MIN_FILTER, (tcw.MipMapped && settings.rend.UseMipmaps)?GL_LINEAR_MIPMAP_NEAREST:GL_LINEAR);
-			glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MAG_FILTER,GL_LINEAR);
+			//set texture filter mode
+			if (tsp.FilterMode == 0)
+			{
+				//disable filtering, mipmaps
+				glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MIN_FILTER,GL_NEAREST);
+				glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MAG_FILTER,GL_NEAREST);
+			}
+			else
+			{
+				//bilinear filtering
+				//PowerVR supports also trilinear via two passes, but we ignore that for now
+				glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MIN_FILTER, (tcw.MipMapped && settings.rend.UseMipmaps)?GL_LINEAR_MIPMAP_NEAREST:GL_LINEAR);
+				glTexParameteri(GL_TEXTURE_2D,GL_TEXTURE_MAG_FILTER,GL_LINEAR);
+			}
 		}
 
 		//PAL texture
@@ -205,7 +227,7 @@ struct TextureCacheData
 				//Call the format specific conversion code
 				texconv=tex->PL;
 				//calculate the size, in bytes, for the locking
-				size=w*h*tex->bpp/8;
+				size=stride*h*tex->bpp/8;
 			}
 			else
 			{
@@ -279,15 +301,44 @@ struct TextureCacheData
 		//PrintTextureName();
 
 		//lock the texture to detect changes in it
-		lock_block = libCore_vramlock_Lock(sa,sa+size-1,this);
+		lock_block = libCore_vramlock_Lock(sa_tex,sa+size-1,this);
 
-		//upload to OpenGL !
-		glBindTexture(GL_TEXTURE_2D, texID);
-		GLuint comps=textype==GL_UNSIGNED_SHORT_5_6_5?GL_RGB:GL_RGBA;
-		glTexImage2D(GL_TEXTURE_2D, 0,comps , w, h, 0, comps, textype, temp_tex_buffer);
+		if (texID) {
+			//upload to OpenGL !
+			glBindTexture(GL_TEXTURE_2D, texID);
+			GLuint comps=textype==GL_UNSIGNED_SHORT_5_6_5?GL_RGB:GL_RGBA;
+			glTexImage2D(GL_TEXTURE_2D, 0,comps , w, h, 0, comps, textype, temp_tex_buffer);
+			if (tcw.MipMapped && settings.rend.UseMipmaps)
+				glGenerateMipmap(GL_TEXTURE_2D);
+		}
+		else {
+			#if FEAT_HAS_SOFTREND
+				if (textype == GL_UNSIGNED_SHORT_5_6_5)
+					tex_type = 0;
+				else if (textype == GL_UNSIGNED_SHORT_5_5_5_1)
+					tex_type = 1;
+				else if (textype == GL_UNSIGNED_SHORT_4_4_4_4)
+					tex_type = 2;
 
-		if (tcw.MipMapped && settings.rend.UseMipmaps)
-			glGenerateMipmap(GL_TEXTURE_2D);
+				if (pData) {
+					_mm_free(pData);
+				}
+
+				pData = (u16*)_mm_malloc(w * h * 16, 16);
+				for (int y = 0; y < h; y++) {
+					for (int x = 0; x < w; x++) {
+						u32* data = (u32*)&pData[(x + y*w) * 8];
+
+						data[0] = decoded_colors[tex_type][temp_tex_buffer[(x + 1) % w + (y + 1) % h * w]];
+						data[1] = decoded_colors[tex_type][temp_tex_buffer[(x + 0) % w + (y + 1) % h * w]];
+						data[2] = decoded_colors[tex_type][temp_tex_buffer[(x + 1) % w + (y + 0) % h * w]];
+						data[3] = decoded_colors[tex_type][temp_tex_buffer[(x + 0) % w + (y + 0) % h * w]];
+					}
+				}
+			#else
+				die("Soft rend disabled, invalid code path");
+			#endif
+		}
 	}
 
 	//true if : dirty or paletted texture and revs don't match
@@ -295,7 +346,18 @@ struct TextureCacheData
 	
 	void Delete()
 	{
-		glDeleteTextures(1,&texID);
+		if (pData) {
+			#if FEAT_HAS_SOFTREND
+				_mm_free(pData);
+				pData = 0;
+			#else
+				die("softrend disabled, invalid codepath");
+			#endif
+		}
+
+		if (texID) {
+			glDeleteTextures(1, &texID);
+		}
 		if (lock_block)
 			libCore_vramlock_Unlock_block(lock_block);
 		lock_block=0;
@@ -344,7 +406,11 @@ void BindRTT(u32 addy, u32 fbw, u32 fbh, u32 channels, u32 fmt)
 		m_i32TexSize by m_i32TexSize.
 	*/
 
+#ifdef GLES
 	glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT24_OES, fbw, fbh);
+#else
+	glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT24, fbw, fbh);
+#endif
 
 	glGenRenderbuffers(1, &rv.stencilb);
 	glBindRenderbuffer(GL_RENDERBUFFER, rv.stencilb);
@@ -377,7 +443,7 @@ void BindRTT(u32 addy, u32 fbw, u32 fbh, u32 channels, u32 fmt)
 	verify(uStatus == GL_FRAMEBUFFER_COMPLETE);
 }
 
-GLuint GetTexture(TSP tsp,TCW tcw)
+GLuint gl_GetTexture(TSP tsp, TCW tcw)
 {
 	if (tcw.TexAddr==fb_rtt.TexAddr && fb_rtt.tex)
 	{
@@ -405,7 +471,7 @@ GLuint GetTexture(TSP tsp,TCW tcw)
 
 		tf->tsp=tsp;
 		tf->tcw=tcw;
-		tf->Create();
+		tf->Create(true);
 	}
 
 	//update if needed
@@ -417,6 +483,52 @@ GLuint GetTexture(TSP tsp,TCW tcw)
 
 	//return gl texture
 	return tf->texID;
+}
+
+
+text_info raw_GetTexture(TSP tsp, TCW tcw)
+{
+	text_info rv = { 0 };
+
+	//lookup texture
+	TextureCacheData* tf;
+	//= TexCache.Find(tcw.full,tsp.full);
+	u64 key = ((u64)tcw.full << 32) | tsp.full;
+
+	TexCacheIter tx = TexCache.find(key);
+
+	if (tx != TexCache.end())
+	{
+		tf = &tx->second;
+	}
+	else //create if not existing
+	{
+		TextureCacheData tfc = { 0 };
+		TexCache[key] = tfc;
+
+		tx = TexCache.find(key);
+		tf = &tx->second;
+
+		tf->tsp = tsp;
+		tf->tcw = tcw;
+		tf->Create(false);
+	}
+
+	//update if needed
+	if (tf->NeedsUpdate())
+		tf->Update();
+
+	//update state for opts/stuff
+	tf->Lookups++;
+
+	//return gl texture
+	rv.height = tf->h;
+	rv.width = tf->w;
+	rv.pdata = tf->pData;
+	rv.textype = tf->tex_type;
+	
+	
+	return rv;
 }
 
 void CollectCleanup() {

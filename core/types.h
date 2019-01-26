@@ -3,18 +3,25 @@
 #include "build.h"
 
 #if BUILD_COMPILER==COMPILER_VC
-#define ALIGN(x) __declspec(align(x))
+#define DECL_ALIGN(x) __declspec(align(x))
 #else
 #define __forceinline inline
-#define ALIGN(x) __attribute__((aligned(x)))
+#define DECL_ALIGN(x) __attribute__((aligned(x)))
 #define __debugbreak
 #endif
 
 
-#if BUILD_COMPILER==COMPILER_VC
-#define DYNACALL  __fastcall
+#if HOST_CPU == CPU_X86
+
+	#if BUILD_COMPILER==COMPILER_VC
+	#define DYNACALL  __fastcall
+	#else
+	//android defines fastcall as regparm(3), it doesn't work for us
+	#undef fastcall
+	#define DYNACALL __attribute__((fastcall))
+	#endif
 #else
-#define DYNACALL 
+	#define DYNACALL
 #endif
 
 #if BUILD_COMPILER==COMPILER_VC
@@ -194,7 +201,7 @@ struct vram_block
 };
 
 
-#if (DC_PLATFORM==DC_PLATFORM_NORMAL)
+#if (DC_PLATFORM==DC_PLATFORM_DREAMCAST)
 
 	#define BUILD_DREAMCAST 1
 	
@@ -225,32 +232,26 @@ struct vram_block
 	#define NVR_OPTIONAL 0
 
 #elif  (DC_PLATFORM==DC_PLATFORM_NAOMI)
-	
-	#define BUILD_NAOMI 1
-	#define BUILD_NAOMI1 1
 
 	//Naomi : 32 mb ram, 16 mb vram, 8 mb aram, 2 mb bios, ? flash
 	#define RAM_SIZE (32*1024*1024)
 	#define VRAM_SIZE (16*1024*1024)
 	#define ARAM_SIZE (8*1024*1024)
 	#define BIOS_SIZE (2*1024*1024)
-	#define BBSRAM_SIZE (8*1024)
+	#define BBSRAM_SIZE (32*1024)
 
 	#define ROM_PREFIX "naomi_"
 	#define ROM_NAMES ";epr-21576d.bin"
 	#define NVR_OPTIONAL 1
 
 #elif  (DC_PLATFORM==DC_PLATFORM_NAOMI2)
-	
-	#define BUILD_NAOMI 1
-	#define BUILD_NAOMI2 1
 
 	//Naomi2 : 32 mb ram, 16 mb vram, 8 mb aram, 2 mb bios, ? flash
 	#define RAM_SIZE (32*1024*1024)
 	#define VRAM_SIZE (16*1024*1024)
 	#define ARAM_SIZE (8*1024*1024)
 	#define BIOS_SIZE (2*1024*1024)	
-	#define BBSRAM_SIZE (8*1024)
+	#define BBSRAM_SIZE (32*1024)
 
 	#define ROM_PREFIX "n2_"
 	#define ROM_NAMES
@@ -301,10 +302,11 @@ struct vram_block
 
 enum ndc_error_codes
 {
-	rv_ok = 0,		//no error
+	rv_ok = 0,			//no error
+	rv_cli_finish=69,	//clean exit after -help or -version , should we just use rv_ok?
 
-	rv_error=-2,	//error
-	rv_serror=-1,	//silent error , it has been reported to the user
+	rv_error=-2,		//error
+	rv_serror=-1,		//silent error , it has been reported to the user
 };
 
 //Simple struct to store window rect  ;)
@@ -423,6 +425,18 @@ struct maple_device_instance
 #include <stdlib.h>
 #include <stdio.h>
 
+#if defined(TARGET_NACL32)
+	int nacl_printf(const wchar* Text,...);
+	#define printf nacl_printf
+	#define puts(X) printf("%s\n", X)
+#endif
+
+#if HOST_OS == OS_DARWIN
+int darw_printf(const wchar* Text,...);
+#define printf darw_printf
+#define puts(X) printf("%s\n", X)
+#endif
+
 //includes from c++rt
 #include <vector>
 #include <string>
@@ -484,31 +498,32 @@ using namespace std;
 #endif
 
 
-#if DC_PLATFORM==DC_PLATFORM_NORMAL
-	#define VER_EMUNAME		"newdc"
+#if DC_PLATFORM==DC_PLATFORM_DREAMCAST
+	#define VER_EMUNAME		"reicast"
 #elif DC_PLATFORM==DC_PLATFORM_DEV_UNIT
-	#define VER_EMUNAME		"newdc-DevKit-SET5.21"
+	#define VER_EMUNAME		"reicast-DevKit-SET5.21"
 #elif DC_PLATFORM==DC_PLATFORM_NAOMI
-	#define VER_EMUNAME		"newdc-Naomi"
+	#define VER_EMUNAME		"reicast-Naomi"
 #elif DC_PLATFORM==DC_PLATFORM_ATOMISWAVE
-	#define VER_EMUNAME		"newdc-AtomisWave"
+	#define VER_EMUNAME		"reicast-AtomisWave"
 #else
 	#error unknown target platform
 #endif
 
 
-#define VER_FULLNAME	VER_EMUNAME " rel0" _X_x_X_MMU_VER_STR " (built " __DATE__ "@" __TIME__ ")"
-#define VER_SHORTNAME	VER_EMUNAME " rel0" _X_x_X_MMU_VER_STR
+#define VER_FULLNAME	VER_EMUNAME " git" _X_x_X_MMU_VER_STR " (built " __DATE__ "@" __TIME__ ")"
+#define VER_SHORTNAME	VER_EMUNAME " git" _X_x_X_MMU_VER_STR
+
+
+void os_DebugBreak();
+#define dbgbreak os_DebugBreak()
 
 #if COMPILER_VC==BUILD_COMPILER
-#define dbgbreak __debugbreak(); 
 #pragma warning( disable : 4127 4996 /*4244*/)
 #else
-#define dbgbreak { (*(int*)0)=0x33; }
 #define stricmp strcasecmp
 #endif
 
-//#define __fastcall <nothing useful is here "" must not happen ever>
 #ifndef STRIP_TEXT
 #define verify(x) if((x)==false){ msgboxf("Verify Failed  : " #x "\n in %s -> %s : %d \n",MBX_ICONERROR,(__FUNCTION__),(__FILE__),__LINE__); dbgbreak;}
 #define die(reason) { msgboxf("Fatal error : %s\n in %s -> %s : %d \n",MBX_ICONERROR,(reason),(__FUNCTION__),(__FILE__),__LINE__); dbgbreak;}
@@ -589,10 +604,20 @@ struct RegisterStruct
 
 struct settings_t
 {
+	struct {
+		bool UseReios;
+	} bios;
+
+	struct {
+		string ElfFile;
+	} reios;
+
 	struct
 	{
 		bool UseMipmaps;
 		bool WideScreen;
+		bool ModifierVolumes;
+		bool Clipping;
 	} rend;
 
 	struct
@@ -600,6 +625,8 @@ struct settings_t
 		bool Enable;
 		bool idleskip;
 		bool unstable_opt;
+		bool safemode;
+		bool disable_nvmem;
 	} dynarec;
 	
 	struct
@@ -626,8 +653,26 @@ struct settings_t
 		u32 GlobalMute;
 		u32 DSPEnabled;		//0 -> no, 1 -> yes
 		u32 NoBatch;
-        u32 NoSound;        //0 ->sound, 1 -> no sound
+		u32 NoSound;        //0 ->sound, 1 -> no sound
+		bool OldSyncronousDma;		// 0 -> sync dma (old behavior), 1 -> async dma (fixes some games, partial implementation)
 	} aica;
+
+#if USE_OMX
+	struct
+	{
+		u32 Audio_Latency;
+		bool Audio_HDMI;
+	} omx;
+#endif
+
+#if SUPPORT_DISPMANX
+	struct
+	{
+		u32 Width;
+		u32 Height;
+		bool Keep_Aspect;
+	} dispmanx;
+#endif
 
 	struct
 	{
@@ -670,12 +715,27 @@ struct settings_t
 		u32 ta_skip;
 		u32 subdivide_transp;
 		u32 rend;
+		
+		u32 MaxThreads;
+		u32 SynchronousRender;
+
+		string HashLogFile;
+		string HashCheckFile;
 	} pvr;
+
+	struct {
+		bool SerialConsole;
+	} debug;
+
+	struct {
+		bool OpenGlChecks;
+	} validate;
 };
 
 extern settings_t settings;
 
 void LoadSettings();
+void LoadCustom();
 void SaveSettings();
 u32 GetRTC_now();
 extern u32 patchRB;
@@ -700,7 +760,7 @@ static inline void do_nada(...) { }
 #undef puts
 #endif
 
-#define LOG_TAG   "newdc"
+#define LOG_TAG   "reicast"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO,LOG_TAG,__VA_ARGS__)
 #define LOGW(...) __android_log_print(ANDROID_LOG_WARN,LOG_TAG,__VA_ARGS__)
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR,LOG_TAG,__VA_ARGS__)

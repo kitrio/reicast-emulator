@@ -25,7 +25,7 @@
 op_agent_t          oprofHandle;
 #endif
 
-#ifndef HOST_NO_REC
+#if FEAT_SHREC != DYNAREC_NONE
 
 
 typedef vector<RuntimeBlockInfo*> bm_List;
@@ -87,24 +87,24 @@ blkmap_t blkmap;
 u32 bm_gc_luc,bm_gcf_luc;
 
 
-#define FPCA(x) ((DynarecCodeEntry*&)sh4rcb.fpcb[(x>>1)&(8*1024*1024-1)])
+#define FPCA(x) ((DynarecCodeEntryPtr&)sh4rcb.fpcb[(x>>1)&FPCB_MASK])
 
-DynarecCodeEntry* DYNACALL bm_GetCode(u32 addr)
+DynarecCodeEntryPtr DYNACALL bm_GetCode(u32 addr)
 {
 	//rdv_FailedToFindBlock_pc=addr;
-	DynarecCodeEntry* rv=FPCA(addr);
+	DynarecCodeEntryPtr rv=(DynarecCodeEntryPtr)FPCA(addr);
 
-	return rv;
+	return (DynarecCodeEntryPtr)rv;
 }
 
-DynarecCodeEntry* DYNACALL bm_GetCode2(u32 addr)
+DynarecCodeEntryPtr DYNACALL bm_GetCode2(u32 addr)
 {
-	return bm_GetCode(addr);
+	return (DynarecCodeEntryPtr)bm_GetCode(addr);
 }
 
 RuntimeBlockInfo* DYNACALL bm_GetBlock(u32 addr)
 {
-	DynarecCodeEntry* cde=bm_GetCode(addr);
+	DynarecCodeEntryPtr cde=bm_GetCode(addr);
 
 	if (cde==ngen_FailedToFindBlock)
 		return 0;
@@ -122,7 +122,7 @@ RuntimeBlockInfo* bm_GetBlock(void* dynarec_code)
 	}
 	else
 	{
-		printf("bm_GetBlock(%08X) failed ..\n",dynarec_code);
+		printf("bm_GetBlock(%8s) failed ..\n",dynarec_code);
 		return 0;
 	}
 }
@@ -155,7 +155,7 @@ void bm_AddBlock(RuntimeBlockInfo* blk)
 	blkmap.insert(blk);
 
 
-	verify(bm_GetCode(blk->addr)==ngen_FailedToFindBlock);
+	verify((void*)bm_GetCode(blk->addr)==(void*)ngen_FailedToFindBlock);
 	FPCA(blk->addr)=blk->code;
 
 #ifdef DYNA_OPROF
@@ -362,9 +362,7 @@ void bm_Rebuild()
 	rebuild_counter=30;
 }
 
-void _vmem_bm_reset();
-
-void _vmem_bm_pagefail(void** ptr,u32 PAGE_SZ)
+void bm_vmem_pagefill(void** ptr,u32 PAGE_SZ)
 {
 	for (size_t i=0; i<PAGE_SZ/sizeof(ptr[0]); i++)
 	{
@@ -381,11 +379,6 @@ void bm_Reset()
 	}
 
 	_vmem_bm_reset();
-	
-	for (u32 i=0;i<(8*1024*1024);i++)
-	{
-		//sh4rcb.fpcb[i]=(void*)ngen_FailedToFindBlock;
-	}
 
 	for (size_t i=0; i<all_blocks.size(); i++)
 	{
@@ -517,7 +510,7 @@ void bm_PrintTopBlocks()
 		sel_hops+=all_blocks[i]->host_opcodes*all_blocks[i]->runs;
 	}
 
-	printf(" >-< %.2f%% covered in top 1% blocks\n",sel_hops/total_hops);
+	printf(" >-< %.2f%% covered in top 1%% blocks\n",sel_hops/total_hops);
 
 	size_t i;
 	for (i=all_blocks.size()/100;sel_hops/total_hops<50;i++)
@@ -614,7 +607,7 @@ void print_blocks()
 
 	if (print_stats)
 	{
-		f=fopen(GetPath("/blkmap.lst").c_str(),"w");
+		f=fopen(get_writable_data_path("/blkmap.lst").c_str(),"w");
 		print_stats=0;
 
 		printf("Writing blocks to %p\n",f);
@@ -680,5 +673,5 @@ void print_blocks()
 
 	if (f) fclose(f);
 }
-#endif //#ifndef HOST_NO_REC
+#endif
 

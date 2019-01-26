@@ -42,14 +42,14 @@ enum gd_states
 	gds_process_set_mode,
 };
 
-struct 
+static struct
 {
 	u32 start_sector;
 	u32 remaining_sectors;
 	u32 sector_type;
 } read_params;
 
-struct 
+static struct
 {
 	u32 index;
 	union
@@ -83,15 +83,15 @@ struct
 } packet_cmd;
 
 //Buffer for sector reads [dma]
-struct 
+static struct
 {
 	u32 cache_index;
 	u32 cache_size;
-	u8 cache[2352*32];	//up to 32 sectors
+	u8 cache[2352 * 8192];	//up to 8192 sectors
 } read_buff;
 
 //pio buffer
-struct 
+static struct
 {
 	gd_states next_state;
 	u32 index;
@@ -100,12 +100,12 @@ struct
 } pio_buff;
 
 u32 set_mode_offset;
-struct 
+static struct
 {
 	u8 command;
 } ata_cmd;
 
-struct 
+static struct
 {
 	bool playing;
 	u32 repeats;
@@ -144,7 +144,7 @@ u32 data_write_mode=0;
 	
 	GD_StatusT GDStatus;
 
-	union
+	static union
 	{
 		struct
 		{
@@ -1031,7 +1031,9 @@ void WriteMem_gdrom(u32 Addr, u32 data, u32 sz)
 		break;
 
 	case GD_DRVSEL: 
-		printf("GDROM: Write to GD_DRVSEL\n");
+		if (data != 0) {
+			printf("GDROM: Write to GD_DRVSEL, !=0. Value is: %02X\n", data);
+		}
 		DriveSel = data; 
 		break;
 

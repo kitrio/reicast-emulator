@@ -61,8 +61,8 @@ void dofoo(sh4_opcode op)
 // 0xxx
 void cpu_iNimp(u32 op, const char* info)
 {
-	printf("\n\nUnimplemented opcode : %X : %X \n", op,next_pc);
-	printf(info);
+	printf("\n\nUnimplemented opcode: %08X next_pc: %08X pr: %08X msg: %s\n", op, next_pc, pr, info);
+	//next_pc = pr; //debug hackfix: try to recover by returning from call
 	die("iNimp reached\n");
 	//sh4_cpu.Stop();
 }
@@ -70,7 +70,7 @@ void cpu_iNimp(u32 op, const char* info)
 void cpu_iWarn(u32 op, const char* info)
 {
 	printf("Check opcode : %X : ", op);
-	printf(info);
+	printf("%s", info);
 	printf(" @ %X\n", curr_pc);
 }
 
@@ -277,24 +277,10 @@ sh4op(i0010_nnnn_mmmm_0100)
 	//iNimp("mov.b <REG_M>,@-<REG_N>");
 	u32 n = GetN(op);
 	u32 m = GetM(op);
-	//r[n]--;
-	if (n==m)
-	{
-		//printf("Mov.b !!!m==n\n");
-		//return;
-		//
-		WriteMemBOU8(r[n],(u32)-1,r[m]);
-		r[n]--;
-	}
-	else
-	{
-		r[n]--;
-		WriteMemU8(r[n],r[m]);
-	}
-
-
-	//WriteMemoryB(r[n], R(m) & 0xFF);
-
+	
+	u32 addr = r[n] - 1;
+	WriteMemBOU8(r[n], (u32)-1, r[m]);
+	r[n] = addr;
 }
 
 //mov.w <REG_M>,@-<REG_N>
@@ -303,19 +289,10 @@ sh4op(i0010_nnnn_mmmm_0101)
 	//iNimp("mov.w <REG_M>,@-<REG_N>");
 	u32 n = GetN(op);
 	u32 m = GetM(op);
-	//r[n] -= 2;
-	if (n==m)
-	{
-		//printf("Mov.w !!!m==n\n");
-		//return;
-		WriteMemBOU16(r[n],(u32)-2,r[m]);
-		r[n] -= 2;
-	}
-	else
-	{
-		r[n] -= 2;
-		WriteMemU16(r[n], r[m]);
-	}
+
+	u32 addr = r[n] - 2;
+	WriteMemU16(addr, r[m]);
+	r[n] = addr;
 }
 
 //mov.l <REG_M>,@-<REG_N>
@@ -323,20 +300,10 @@ sh4op(i0010_nnnn_mmmm_0110)
 {
 	u32 n = GetN(op);
 	u32 m = GetM(op);
-	//r[n] -= 4;
-	if (m==n)
-	{
-		//iNimp(op,"Mov.l !!!m==n");
-		//printf("mov.l <REG_M>,@-<REG_N> !!!m==n\n");
-		//return;
-		WriteMemBOU32(r[n],(u32)-4,r[m]);
-		r[n] -= 4;
-	}
-	else
-	{
-		r[n] -= 4;
-		WriteMemU32(r[n],r[m]);
-	}
+
+	u32 addr = r[n] - 4;
+	WriteMemU32(addr, r[m]);
+	r[n] = addr;
 }
 
  //
@@ -346,16 +313,20 @@ sh4op(i0100_nnnn_0101_0010)
 {
 	//iNimp("sts.l FPUL,@-<REG_N>");
 	u32 n = GetN(op);
-	r[n] -= 4;
-	WriteMemU32(r[n], fpul);
+
+	u32 addr = r[n] - 4;
+	WriteMemU32(addr, fpul);
+	r[n] = addr;
 }
 
 //sts.l MACH,@-<REG_N>
 sh4op(i0100_nnnn_0000_0010)
 {
 	u32 n = GetN(op);
-	r[n] -= 4;
-	WriteMemU32(r[n], mac.h);
+
+	u32 addr = r[n] - 4;
+	WriteMemU32(addr, mac.h);
+	r[n] = addr;
 }
 
 
@@ -363,8 +334,10 @@ sh4op(i0100_nnnn_0000_0010)
 sh4op(i0100_nnnn_0001_0010)
 {
 	u32 n = GetN(op);
-	r[n] -= 4;
-	WriteMemU32(r[n], mac.l);
+	
+	u32 addr = r[n] - 4;
+	WriteMemU32(addr, mac.l);
+	r[n] = addr;
 }
 
 
@@ -372,16 +345,20 @@ sh4op(i0100_nnnn_0001_0010)
 sh4op(i0100_nnnn_0010_0010)
 {
 	u32 n = GetN(op);
-	r[n] -= 4;
-	WriteMemU32(r[n],pr);
+
+	u32 addr = r[n] - 4;
+	WriteMemU32(addr,pr);
+	r[n] = addr;
 }
 
  //sts.l DBR,@-<REG_N>
 sh4op(i0100_nnnn_1111_0010)
 {
 	u32 n = GetN(op);
-	r[n] -= 4;
-	WriteMemU32(r[n],dbr);
+
+	u32 addr = r[n] - 4;
+	WriteMemU32(addr,dbr);
+	r[n] = addr;
 }
 
 //stc.l GBR,@-<REG_N>
@@ -389,8 +366,10 @@ sh4op(i0100_nnnn_0001_0011)
 {
 	//iNimp("stc.l GBR,@-<REG_N>");
 	u32 n = GetN(op);
-	r[n] -= 4;
-	WriteMemU32(r[n], gbr);
+	
+	u32 addr = r[n] - 4;
+	WriteMemU32(addr, gbr);
+	r[n] = addr;
 }
 
 
@@ -399,8 +378,10 @@ sh4op(i0100_nnnn_0010_0011)
 {
 	//iNimp("stc.l VBR,@-<REG_N>");
 	u32 n = GetN(op);
-	r[n] -= 4;
-	WriteMemU32(r[n], vbr);
+
+	u32 addr = r[n] - 4;
+	WriteMemU32(addr, vbr);
+	r[n] = addr;
 }
 
 
@@ -409,16 +390,20 @@ sh4op(i0100_nnnn_0011_0011)
 {
 	//iNimp("stc.l SSR,@-<REG_N>");
 	u32 n = GetN(op);
-	r[n] -= 4;
-	WriteMemU32(r[n], ssr);
+
+	u32 addr = r[n] - 4;
+	WriteMemU32(addr, ssr);
+	r[n] = addr;
 }
 //stc.l SGR,@-<REG_N>
 sh4op(i0100_nnnn_0011_0010)
 {
 	//iNimp("stc.l SGR,@-<REG_N>");
 	u32 n = GetN(op);
-	r[n] -= 4;
-	WriteMemU32(r[n], sgr);
+
+	u32 addr = r[n] - 4;
+	WriteMemU32(addr, sgr);
+	r[n] = addr;
 }
 
 
@@ -427,8 +412,10 @@ sh4op(i0100_nnnn_0100_0011)
 {
 	//iNimp("stc.l SPC,@-<REG_N>");
 	u32 n = GetN(op);
-	r[n] -= 4;
-	WriteMemU32(r[n], spc);
+
+	u32 addr = r[n] - 4;
+	WriteMemU32(addr, spc);
+	r[n] = addr;
 }
 
 //stc RM_BANK,@-<REG_N>
@@ -437,8 +424,10 @@ sh4op(i0100_nnnn_1mmm_0011)
 	//iNimp("stc RM_BANK,@-<REG_N>");
 	u32 n = GetN(op);
 	u32 m = GetM(op) & 0x07;
-	r[n] -= 4;
-	WriteMemU32(r[n], r_bank[m]);
+
+	u32 addr = r[n] - 4;
+	WriteMemU32(addr, r_bank[m]);
+	r[n] = addr;
 }
 
 
@@ -923,10 +912,14 @@ sh4op(i0000_nnnn_0010_0011)
 //bsrf <REG_N>
 sh4op(i0000_nnnn_0000_0011)
 {
+	//TODO: Check pr setting vs real h/w
 	u32 n = GetN(op);
 	u32 newpc = r[n] + next_pc +2;
-	pr = next_pc + 2;   //after delayslot
+	u32 newpr = next_pc + 2;
+	
 	ExecuteDelayslot(); //WARN : pr and r[n] can change here
+	
+	pr = newpr;
 	next_pc = newpc;
 }
 
@@ -1023,9 +1016,12 @@ sh4op(i1010_iiii_iiii_iiii)
 // bsr <bdisp12>
 sh4op(i1011_iiii_iiii_iiii)
 {
-	pr = next_pc + 2; //return after delayslot
+	//TODO: check pr vs real h/w
+	u32 newpr = next_pc + 2; //return after delayslot
 	u32 newpc = branch_target_s12(op);
 	ExecuteDelayslot();
+
+	pr = newpr;
 	next_pc=newpc;
 }
 
@@ -1034,7 +1030,7 @@ sh4op(i1100_0011_iiii_iiii)
 {
 	//printf("trapa 0x%X\n",(GetImm8(op) << 2));
 	CCN_TRA = (GetImm8(op) << 2);
-	Do_Exeption(next_pc,0x160,0x100);
+	Do_Exception(next_pc,0x160,0x100);
 }
 
 //jmp @<REG_N>
@@ -1052,9 +1048,12 @@ sh4op(i0100_nnnn_0000_1011)
 {
 	u32 n = GetN(op);
 
-	pr = next_pc + 2;   //return after delayslot
+	//TODO: check pr vs real h/w
+	u32 newpr = next_pc + 2;   //return after delayslot
 	u32 newpc= r[n];
 	ExecuteDelayslot(); //r[n]/pr can change here
+
+	pr = newpr;
 	next_pc=newpc;
 }
 
@@ -1227,7 +1226,7 @@ sh4op(i0000_0000_0000_1001)
 //ldtlb
 sh4op(i0000_0000_0011_1000)
 {
-	printf("ldtlb %d/%d\n",CCN_MMUCR.URC,CCN_MMUCR.URB);
+	//printf("ldtlb %d/%d\n",CCN_MMUCR.URC,CCN_MMUCR.URB);
 	UTLB[CCN_MMUCR.URC].Data=CCN_PTEL;
 	UTLB[CCN_MMUCR.URC].Address=CCN_PTEH;
 
@@ -1265,7 +1264,8 @@ INLINE void DYNACALL do_sqw(u32 Dest)
 	//Translate the SQ addresses as needed
 	if (mmu_on)
 	{
-		Address=mmu_TranslateSQW(Dest);
+		if (!mmu_TranslateSQW(Dest, &Address))
+			return;
 	}
 	else
 	{
@@ -1299,6 +1299,7 @@ INLINE void DYNACALL do_sqw(u32 Dest)
 
 void DYNACALL do_sqw_mmu(u32 dst) { do_sqw<true>(dst); }
 #if HOST_CPU!=CPU_ARM
+//yes, this micro optimization makes a difference
 extern "C" void DYNACALL do_sqw_nommu_area_3(u32 dst,u8* sqb)
 {
 	u8* pmem=sqb+512+0x0C000000;
@@ -1306,6 +1307,13 @@ extern "C" void DYNACALL do_sqw_nommu_area_3(u32 dst,u8* sqb)
 	memcpy((u64*)&pmem[dst&(RAM_MASK-0x1F)],(u64*)&sqb[dst & 0x20],32);
 }
 #endif
+
+extern "C" void DYNACALL do_sqw_nommu_area_3_nonvmem(u32 dst,u8* sqb)
+{
+	u8* pmem = mem_b.data;
+
+	memcpy((u64*)&pmem[dst&(RAM_MASK-0x1F)],(u64*)&sqb[dst & 0x20],32);
+}
 
 void DYNACALL do_sqw_nommu_full(u32 dst, u8* sqb) { do_sqw<false>(dst); }
 
@@ -2201,6 +2209,13 @@ sh4op(i0100_nnnn_0000_1110)
 //Not implt
 sh4op(iNotImplemented)
 {
-	cpu_iNimp(op,"Unknown opcode");
+#ifndef NO_MMU
+	printf("iNimp %04X\n", op);
+	SH4ThrownException ex = { next_pc - 2, 0x180, 0x100 };
+	throw ex;
+#else
+	cpu_iNimp(op, "Unknown opcode");
+#endif
+	
 }
 

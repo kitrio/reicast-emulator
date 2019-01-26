@@ -1,6 +1,6 @@
-
 #include "_vmem.h"
 #include "hw/aica/aica_if.h"
+#include "hw/sh4/dyna/blockmanager.h"
 
 #define HANDLER_MAX 0x1F
 #define HANDLER_COUNT (HANDLER_MAX+1)
@@ -48,7 +48,7 @@ void _vmem_get_ptrs(u32 sz,bool write,void*** vmap,void*** func)
 void* _vmem_get_ptr2(u32 addr,u32& mask)
 {
 	u32   page=addr>>24;
-	u32   iirf=(unat)_vmem_MemInfo_ptr[page];
+	unat  iirf=(unat)_vmem_MemInfo_ptr[page];
 	void* ptr=(void*)(iirf&~HANDLER_MAX);
 
 	if (ptr==0) return 0;
@@ -60,13 +60,13 @@ void* _vmem_get_ptr2(u32 addr,u32& mask)
 void* _vmem_read_const(u32 addr,bool& ismem,u32 sz)
 {
 	u32   page=addr>>24;
-	u32   iirf=(unat)_vmem_MemInfo_ptr[page];
+	unat  iirf=(unat)_vmem_MemInfo_ptr[page];
 	void* ptr=(void*)(iirf&~HANDLER_MAX);
 
 	if (ptr==0)
 	{
 		ismem=false;
-		const u32 id=iirf;
+		const unat id=iirf;
 		if (sz==1)
 		{
 			return (void*)_vmem_RF8[id/4];
@@ -100,13 +100,13 @@ void* _vmem_read_const(u32 addr,bool& ismem,u32 sz)
 void* _vmem_page_info(u32 addr,bool& ismem,u32 sz,u32& page_sz,bool rw)
 {
 	u32   page=addr>>24;
-	u32   iirf=(unat)_vmem_MemInfo_ptr[page];
+	unat  iirf=(unat)_vmem_MemInfo_ptr[page];
 	void* ptr=(void*)(iirf&~HANDLER_MAX);
 	
 	if (ptr==0)
 	{
 		ismem=false;
-		const u32 id=iirf;
+		const unat id=iirf;
 		page_sz=24;
 		if (sz==1)
 		{
@@ -146,11 +146,7 @@ INLINE Trv DYNACALL _vmem_readt(u32 addr)
 	u32   page=addr>>24;	//1 op, shift/extract
 	unat  iirf=(unat)_vmem_MemInfo_ptr[page]; //2 ops, insert + read [vmem table will be on reg ]
 	void* ptr=(void*)(iirf&~HANDLER_MAX);     //2 ops, and // 1 op insert
-	//u32   mask=(u32)0xFFFFFFFF>>iirf;       //2 ops, load -1 and shift
-	//1 op for the mask
-	//1 op for the add
-	//1 op for ret
-	//1 op for ram read (dslot)
+
 	if (likely(ptr!=0))
 	{
 		addr<<=iirf;
@@ -195,12 +191,7 @@ INLINE void DYNACALL _vmem_writet(u32 addr,T data)
 	u32 page=addr>>24;
 	unat  iirf=(unat)_vmem_MemInfo_ptr[page];
 	void* ptr=(void*)(iirf&~HANDLER_MAX);
-	//u32   mask=(u32)0xFFFFFFFF>>iirf;
 
-	if (sz==8 && ((u32)data==0x80000001 || (data>>32)==0x80000001) && addr != 0x0c1a5e18 )
-	{
-		//printf("WUT WUT %08X\n",iirf);
-	}
 	if (likely(ptr!=0))
 	{
 		addr<<=iirf;
@@ -345,7 +336,7 @@ void _vmem_map_block(void* base,u32 start,u32 end,u32 mask)
 	u32 j=0;
 	for (u32 i=start;i<=end;i++)
 	{
-		_vmem_MemInfo_ptr[i]=&(((u8*)base)[j]) + FindMask(mask);
+		_vmem_MemInfo_ptr[i]=&(((u8*)base)[j&mask]) + FindMask(mask) - (j & mask);
 		j+=0x1000000;
 	}
 }
@@ -402,13 +393,53 @@ void _vmem_term()
 #include "hw/pvr/pvr_mem.h"
 #include "hw/sh4/sh4_mem.h"
 
-#ifndef TARGET_NACL32
+u8* virt_ram_base;
+
+void* malloc_pages(size_t size) {
+
+	u8* rv = (u8*)malloc(size + PAGE_SIZE);
+
+	return rv + PAGE_SIZE - ((unat)rv % PAGE_SIZE);
+}
+
+bool _vmem_reserve_nonvmem()
+{
+	virt_ram_base = 0;
+
+	p_sh4rcb=(Sh4RCB*)malloc_pages(sizeof(Sh4RCB));
+
+	mem_b.size=RAM_SIZE;
+	mem_b.data=(u8*)malloc_pages(RAM_SIZE);
+
+	vram.size=VRAM_SIZE;
+	vram.data=(u8*)malloc_pages(VRAM_SIZE);
+
+	aica_ram.size=ARAM_SIZE;
+	aica_ram.data=(u8*)malloc_pages(ARAM_SIZE);
+
+	return true;
+}
+
+void _vmem_bm_reset_nvmem();
+
+void _vmem_bm_reset() {
+	if (virt_ram_base) {
+		#if !defined(TARGET_NO_NVMEM)
+			_vmem_bm_reset_nvmem();
+		#endif
+	}
+    
+    if (!virt_ram_base || HOST_OS == OS_DARWIN) {
+		bm_vmem_pagefill((void**)p_sh4rcb->fpcb, FPCB_SIZE);
+	}
+}
+
+#if !defined(TARGET_NO_NVMEM)
 
 #define MAP_RAM_START_OFFSET  0
 #define MAP_VRAM_START_OFFSET (MAP_RAM_START_OFFSET+RAM_SIZE)
 #define MAP_ARAM_START_OFFSET (MAP_VRAM_START_OFFSET+VRAM_SIZE)
 
-u8* virt_ram_base;
 #if HOST_OS==OS_WINDOWS
 #include <Windows.h>
 HANDLE mem_handle;
@@ -546,7 +577,13 @@ error:
 
 	void* _nvmem_alloc_mem()
 	{
-#ifndef _ANDROID
+        
+#if HOST_OS == OS_DARWIN
+		string path = get_writable_data_path("/dcnzorz_mem");
+        fd = open(path.c_str(),O_CREAT|O_RDWR|O_TRUNC,S_IRWXU|S_IRWXG|S_IRWXO);
+        unlink(path.c_str());
+        verify(ftruncate(fd,RAM_SIZE + VRAM_SIZE +ARAM_SIZE)==0);
+#elif !defined(_ANDROID)
 		fd = shm_open("/dcnzorz_mem", O_CREAT | O_EXCL | O_RDWR,S_IREAD | S_IWRITE);
 		shm_unlink("/dcnzorz_mem");
 		if (fd==-1)
@@ -570,6 +607,7 @@ error:
 
 		u32 sz= 512*1024*1024 + sizeof(Sh4RCB) + ARAM_SIZE + 0x10000;
 		void* rv=mmap(0, sz, PROT_NONE, MAP_PRIVATE | MAP_ANON, -1, 0);
+		verify(rv != NULL);
 		munmap(rv,sz);
 		return (u8*)rv + 0x10000 - unat(rv)%0x10000;//align to 64 KB (Needed for linaro mmap not to extend to next region)
 	}
@@ -578,11 +616,18 @@ error:
 #define map_buffer(dsts,dste,offset,sz,w) {ptr=_nvmem_map_buffer(dsts,dste-dsts,offset,sz,w);if (!ptr) return false;}
 #define unused_buffer(start,end) {ptr=_nvmem_unused_buffer(start,end);if (!ptr) return false;}
 
-void _vmem_bm_pagefail(void** ptr,u32 PAGE_SZ);
-
 u32 pagecnt;
-void _vmem_bm_reset()
+void _vmem_bm_reset_nvmem()
 {
+	#if defined(TARGET_NO_NVMEM)
+		return;
+	#endif
+
+	#if (HOST_OS == OS_DARWIN)
+		//On iOS & nacl we allways allocate all of the mapping table
+		mprotect(p_sh4rcb, sizeof(p_sh4rcb->fpcb), PROT_READ | PROT_WRITE);
+		return;
+	#endif
 	pagecnt=0;
 
 #if HOST_OS==OS_WINDOWS
@@ -590,8 +635,12 @@ void _vmem_bm_reset()
 #else
 	mprotect(p_sh4rcb, sizeof(p_sh4rcb->fpcb), PROT_NONE);
 	madvise(p_sh4rcb,sizeof(p_sh4rcb->fpcb),MADV_DONTNEED);
+    #ifdef MADV_REMOVE
 	madvise(p_sh4rcb,sizeof(p_sh4rcb->fpcb),MADV_REMOVE);
-	//madvise(p_sh4rcb,sizeof(p_sh4rcb->fpcb),MADV_FREE);
+    #else
+    //OSX, IOS
+    madvise(p_sh4rcb,sizeof(p_sh4rcb->fpcb),MADV_FREE);
+    #endif
 #endif
 
 	printf("Freeing fpcb\n");
@@ -599,7 +648,10 @@ void _vmem_bm_reset()
 
 bool BM_LockedWrite(u8* address)
 {
-#if !defined(HOST_NO_REC)
+	if (!_nvmem_enabled())
+		return false;
+	
+#if FEAT_SHREC != DYNAREC_NONE
 	u32 addr=address-(u8*)p_sh4rcb->fpcb;
 
 	address=(u8*)p_sh4rcb->fpcb+ (addr&~PAGE_MASK);
@@ -614,7 +666,7 @@ bool BM_LockedWrite(u8* address)
 		mprotect (address, PAGE_SIZE, PROT_READ | PROT_WRITE);
 #endif
 
-		_vmem_bm_pagefail((void**)address,PAGE_SIZE);
+		bm_vmem_pagefill((void**)address,PAGE_SIZE);
 		
 		return true;
 	}
@@ -630,7 +682,14 @@ bool _vmem_reserve()
 
 	verify((sizeof(Sh4RCB)%PAGE_SIZE)==0);
 
+	if (settings.dynarec.disable_nvmem)
+		return _vmem_reserve_nonvmem();
+
 	virt_ram_base=(u8*)_nvmem_alloc_mem();
+
+	if (virt_ram_base==0)
+		return _vmem_reserve_nonvmem();
+	
 	p_sh4rcb=(Sh4RCB*)virt_ram_base;
 
 #if HOST_OS==OS_WINDOWS
@@ -644,9 +703,6 @@ bool _vmem_reserve()
 #endif
 	virt_ram_base+=sizeof(Sh4RCB);
 
-	if (virt_ram_base==0)
-		return false;
-	
 	//Area 0
 	//[0x00000000 ,0x00800000) -> unused
 	unused_buffer(0x00000000,0x00800000);
@@ -720,14 +776,7 @@ bool _vmem_reserve()
 
 bool _vmem_reserve()
 {
-	mem_b.size=RAM_SIZE;
-	mem_b.data=(u8*)malloc(RAM_SIZE);
-
-	vram.size=VRAM_SIZE;
-	vram.data=(u8*)malloc(VRAM_SIZE);
-
-	aica_ram.size=ARAM_SIZE;
-	aica_ram.data=(u8*)malloc(ARAM_SIZE);
+	return _vmem_reserve_nonvmem();
 }
 #endif
 

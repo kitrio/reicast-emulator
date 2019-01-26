@@ -4,9 +4,14 @@
 enum MapleDeviceType
 {
 	MDT_SegaController,
+
 	MDT_SegaVMU,
 	MDT_Microphone,
+	MDT_PurupuruPack,
 
+	MDT_NaomiJamma,
+
+	MDT_None,
 	MDT_Count
 };
 
@@ -30,5 +35,7 @@ struct maple_device
 
 maple_device* maple_Create(MapleDeviceType type);
 #define SIZE_OF_MIC_DATA	480 //ALSO DEFINED IN SipEmulator.java
+#ifndef TARGET_PANDORA
 int get_mic_data(u8* buffer); //implemented in Android.cpp
 int push_vmu_screen(u8* buffer); //implemented in Android.cpp
+#endif
